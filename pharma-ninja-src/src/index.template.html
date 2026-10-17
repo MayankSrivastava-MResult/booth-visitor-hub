@@ -230,6 +230,15 @@ button:focus-visible { outline: 0.3rem solid var(--white); outline-offset: 0.3re
 #s-results .lb-head h2 { font-size: 4rem; }
 #s-results .lb-row .nm i { display: none; }
 
+/* ---- Registration overlay (Hub mode) ---- */
+#s-reg { background: var(--charcoal); }
+#s-reg.on { display: flex; flex-direction: column; }
+#s-reg, #s-reg * { touch-action: auto; }                 /* normal scrolling and typing inside the form */
+.reg-bar { display: flex; align-items: center; gap: 3.2rem; padding: 1.6rem 4.4rem; flex-shrink: 0; }
+.reg-bar .btn-ghost { height: 7.2rem; padding: 0 3.6rem; font-size: 2.6rem; }
+.reg-bar span { font-size: 4.4rem; }
+#reg-frame { flex: 1 1 auto; width: 100%; border: 0; background: #F4F4F2; }
+
 /* ---- Admin (functional, not themed) ---- */
 #s-admin { background: rgba(10,10,10,0.92); font-family: system-ui, 'Segoe UI', sans-serif; }
 .adm { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(80rem, 94vw); background: #fff; color: #1F1F1F; border-radius: 1.2rem; padding: 3.2rem; display: flex; flex-direction: column; gap: 2rem; font-size: 2rem;
@@ -369,7 +378,14 @@ button:focus-visible { outline: 0.3rem solid var(--white); outline-offset: 0.3re
     <aside class="lb" id="lb-results"></aside>
   </section>
 
-  <!-- ADMIN (stub in Milestone 1): PIN, then sound toggles -->
+  <!-- REGISTRATION (Hub mode): the Hub's public form over the game when a badge is not
+       registered. The game page stays open underneath, so the music keeps playing. -->
+  <section id="s-reg" class="screen">
+    <div class="reg-bar"><button class="btn-ghost" id="reg-back">Back to the game</button></div>
+    <iframe id="reg-frame" title="Registration form" src="about:blank"></iframe>
+  </section>
+
+  <!-- ADMIN: PIN, then the admin panel (app.js section 10) -->
   <section id="s-admin" class="screen"><div class="adm" id="adm"></div></section>
 </div>
 

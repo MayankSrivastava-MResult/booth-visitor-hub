@@ -812,6 +812,12 @@ var Activity = {
     var self = this;
     setInterval(function () {
       if (Admin.isOpen) return;
+      // A new game build has arrived: switch to it while nobody is playing.
+      if (Hub.updateReady && Screens.current === 'attract' && !Round.active && !Register.isOpen) { location.reload(); return; }
+      if (Register.isOpen) {   // filling in the form: only an abandoned form returns to attract mode
+        if (Date.now() - Register.last > Register.IDLE_MS) Screens.toAttract();
+        return;
+      }
       if (Screens.current === 'attract' && (++self.n % 30) === 0) Leaderboard.render($('lb-attract'));
       if (['name', 'picker', 'results'].indexOf(Screens.current) >= 0 && Date.now() - self.last > Store.settings.idleSeconds * 1000) Screens.toAttract();
     }, 1000);
@@ -928,7 +934,7 @@ var Screens = {
     this.current = name;
   },
   toAttract: function () {
-    Round.abort(); this.player = null;
+    Round.abort(); this.player = null; Register.close();
     Leaderboard.render($('lb-attract'));
     this.show('attract'); if (Stage) Stage.setMode('attract');
   },
@@ -950,7 +956,7 @@ var Screens = {
     $('pk-back').addEventListener('click', function () { NameEntry.open(self.player); });
     $('r-again').addEventListener('click', function () { Picker.open(self.player); });
     $('r-done').addEventListener('click', function () { self.toAttract(); });
-    NameEntry.init();
+    NameEntry.init(); Register.init();
   },
   results: function (st) {
     var acc = st.answers.length ? Math.round(100 * st.round.correct / st.answers.length) : 0;
@@ -983,14 +989,16 @@ var Screens = {
 };
 
 /* Name entry with the built-in keyboard (physical keyboard also works for laptop testing).
-   The optional second field is the visitor's Badge ID (stored uppercased). When the Hub is
-   reachable, a typed badge is looked up in the background; if it is registered the player
-   sees "Welcome, <first name> — is this you?". Yes prefills the display name and marks the
-   badge confirmed; No clears the badge. A failed or slow lookup changes nothing: the player
-   carries on and the badge is stored unconfirmed. Nothing here ever waits for the network. */
+   Fields: Badge ID (required, stored uppercased) then Display name. When the Hub is reachable,
+   a typed badge is looked up in the background; if it is registered the player sees
+   "Welcome, <first name> — is this you?". Yes prefills the display name and marks the badge
+   confirmed; No clears the badge. On "Choose domain" an unconfirmed badge is checked: not
+   registered → the registration form opens over the game (Register). If the Hub cannot be
+   reached the player carries on and the badge is stored unconfirmed: the game never blocks
+   on the network. */
 var NameEntry = {
   name: '', vid: '', field: 'name', shift: true, vidLocked: false,
-  confirmed: false, offer: null, lookupSeq: 0, lookupTimer: null,
+  confirmed: false, offer: null, lookupSeq: 0, lookupTimer: null, checking: false,
   ROWS: [['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'], ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
     ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', '-'], ['SHIFT', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '.', 'DEL'], ['_', 'SPACE', 'GO']],
   init: function () {
@@ -1078,9 +1086,12 @@ var NameEntry = {
       });
     }, 700);
   },
+  /* The display name only allows A–Z, 0–9, space . _ - (max 16): strip accents and anything else. */
+  cleanName: function (first) {
+    return String(first).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9 ._-]/g, '').trim().slice(0, NAME_MAX);
+  },
   showOffer: function (first) {
-    // The display name only allows A–Z, 0–9, space . _ - (max 16): strip accents and anything else.
-    this.offer = String(first).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9 ._-]/g, '').trim().slice(0, NAME_MAX);
+    this.offer = this.cleanName(first);
     $('nc-text').innerHTML = 'Welcome, <b>' + esc(first) + '</b> — is this you?';
     $('name-head').classList.add('off'); $('name-confirm').classList.add('on');
     Activity.ping();
@@ -1105,7 +1116,7 @@ var NameEntry = {
     $('v-vid').innerHTML = this.vid ? esc(this.vid) + (this.field === 'vid' ? caret : '') : (this.field === 'vid' ? caret : '') + '<span class="ph">On your event badge</span>';
     $('f-name').classList.toggle('active', this.field === 'name'); $('f-vid').classList.toggle('active', this.field === 'vid');
     $('k-shift').classList.toggle('on', this.shift);
-    $('name-go').disabled = this.name.trim().length < 2;
+    $('name-go').disabled = !this.vid.trim() || this.checking;   // the Badge ID is required to play
   },
   blocked: function (name) {
     var n = name.toLowerCase().replace(/0/g, 'o').replace(/1/g, 'i').replace(/3/g, 'e').replace(/4/g, 'a').replace(/5/g, 's').replace(/7/g, 't').replace(/\$/g, 's').replace(/@/g, 'a');
@@ -1113,12 +1124,77 @@ var NameEntry = {
     return BLOCKED_WORDS.concat(BLOCKED_PARTS).some(function (b) { return words.indexOf(b) >= 0; }) ||
       BLOCKED_PARTS.some(function (b) { return squashed.indexOf(b) >= 0; });
   },
+  /* "Choose domain". The Badge ID is required. Unless already confirmed, it is checked with the Hub:
+       registered     → "Welcome, <first name> — is this you?" (Yes fills the name; then Choose domain again)
+       not registered → the registration form opens over the game, badge prefilled (Register below)
+       Hub unreachable, or not signed in → play anyway; the badge is kept unconfirmed for later matching
+     Standalone (no Hub) the typed badge is kept unconfirmed. */
   submit: function () {
+    var self = this, badge = this.vid.trim();
+    if (!badge) { this.field = 'vid'; this.paint(); $('name-msg').textContent = 'Enter the Badge ID printed on your event badge.'; return; }
+    if (this.confirmed || !Hub.enabled()) return this.play();
+    if (this.checking) return;
+    this.checking = true; $('name-msg').textContent = ''; $('name-go').textContent = 'Checking…'; this.paint();
+    var seq = ++this.lookupSeq; clearTimeout(this.lookupTimer);
+    Hub.lookup(badge).then(function (r) {
+      self.checking = false; $('name-go').textContent = 'Choose domain'; self.paint();
+      if (seq !== self.lookupSeq || Screens.current !== 'name' || Admin.isOpen) return;
+      if (r && r.found) return self.showOffer(r.firstName || '');
+      if (r) return Register.open(badge);
+      self.play();
+    });
+  },
+  /* Back from the registration form: badge confirmed, first name as the display name (editable). */
+  registered: function (badge, first) {
+    this.lookupSeq++; clearTimeout(this.lookupTimer);
+    if (badge && !this.vidLocked) this.vid = badge.toUpperCase().slice(0, VID_MAX);
+    var nice = this.cleanName(first);
+    if (nice.length >= 2) this.name = nice;
+    this.confirmed = true; this.field = 'name'; this.shift = false;
+    this.hideOffer(); $('name-msg').textContent = ''; this.paint();
+  },
+  play: function () {
     var n = this.name.trim();
-    if (n.length < 2) { $('name-msg').textContent = 'Use at least 2 characters.'; return; }
+    if (n.length < 2) { this.field = 'name'; this.paint(); $('name-msg').textContent = 'Type a display name (at least 2 characters).'; return; }
     if (this.blocked(n)) { $('name-msg').textContent = 'That name can’t go on the leaderboard. Try another.'; return; }
     Screens.player = { displayName: n, visitorId: this.vid.trim(), badgeConfirmed: this.confirmed && !!this.vid.trim() };
     Picker.open(Screens.player);
+  }
+};
+
+/* Registration inside the game (Hub mode only). An unregistered badge opens the Hub's
+   public form (/register?kiosk=1) over the name screen, badge prefilled. The game page
+   stays open underneath, so the music keeps playing. When the form is saved it sends
+   {type:'pn-registered', badgeId, firstName} (same site only) and the player is back on
+   the name screen with the badge confirmed. "Back to the game" closes it at any time,
+   including when the form cannot load (offline). Nothing is stored by the game here. */
+var Register = {
+  isOpen: false, last: 0,
+  IDLE_MS: 180000,   // no typing for 3 minutes → back to attract mode (the form is abandoned)
+  init: function () {
+    var self = this;
+    $('reg-back').addEventListener('click', function () { self.close(); });
+    window.addEventListener('message', function (e) { self.onMessage(e); });
+  },
+  open: function (badge) {
+    this.isOpen = true; this.last = Date.now();
+    $('reg-frame').src = '/register?kiosk=1&badge=' + encodeURIComponent(badge);
+    $('s-reg').classList.add('on');
+  },
+  close: function () {
+    if (!this.isOpen) return;
+    this.isOpen = false;
+    $('s-reg').classList.remove('on'); $('reg-frame').src = 'about:blank';
+    Activity.ping();
+  },
+  onMessage: function (e) {
+    if (!this.isOpen || e.origin !== location.origin || e.source !== $('reg-frame').contentWindow || !e.data) return;
+    this.last = Date.now(); Activity.ping();
+    if (e.data.type === 'pn-registered') {
+      var self = this;
+      NameEntry.registered(String(e.data.badgeId || ''), String(e.data.firstName || ''));
+      setTimeout(function () { self.close(); }, 900);   // let "Registered!" show for a moment
+    }
   }
 };
 
@@ -1511,16 +1587,25 @@ var Hub = {
     });
   },
 
-  /* Offline support for /play (Hub mode only). */
+  /* Offline support for /play (Hub mode only). Also picks up new builds: the worker is checked
+     for updates every 5 minutes; when a new version has taken over, the page reloads itself
+     the next time it is idle on the attract screen (never mid-round or mid-form). */
+  updateReady: false,
   registerWorker: function () {
+    var self = this;
     if (!('serviceWorker' in navigator) || !/^https?:$/.test(location.protocol) || location.pathname !== '/play') return;
-    navigator.serviceWorker.register('/play-sw.js', { scope: '/play' }).catch(function () {});
+    var hadWorker = !!navigator.serviceWorker.controller;   // first visit: taking control is not an update
+    navigator.serviceWorker.addEventListener('controllerchange', function () { if (hadWorker) self.updateReady = true; });
+    navigator.serviceWorker.register('/play-sw.js', { scope: '/play' }).then(function (reg) {
+      setInterval(function () { reg.update().catch(function () {}); }, 5 * 60000);
+    }).catch(function () {});
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
   }
 };
 
 /* Exposed for debugging in the browser console (and the Hub's automated tests) only */
 window.PharmaNinja = { Store: Store, Round: Round, Leaderboard: Leaderboard, Hub: Hub, Screens: Screens, NameEntry: NameEntry, Admin: Admin,
+  Register: Register, Sound: Sound,
   get Stage() { return Stage; } };
 
 Boot.start();
