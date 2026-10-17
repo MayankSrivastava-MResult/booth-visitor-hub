@@ -44,7 +44,8 @@ var DEFAULT_SETTINGS = {
   pin: '2026',
   maxPixelRatio: 2,       // device-pixel-ratio cap for performance
   leaderboardResetAt: 0,  // manual reset timestamp ("Reset today's leaderboard" in admin)
-  contentEtag: '', contentVersion: '', lastContentAt: 0, lastSyncAt: 0   // Booth Hub sync bookkeeping (section 12)
+  contentEtag: '', contentVersion: '', lastContentAt: 0, lastSyncAt: 0,  // Booth Hub sync bookkeeping (section 12)
+  badgePattern: '^[A-Z0-9-]{4,20}$'   // badge ID rule, refreshed from the Hub's Settings with the questions
 };
 var NAME_MAX = 16, VID_MAX = 24;
 var BASE_POINTS = 100, MIN_POINTS = 20;
@@ -998,7 +999,7 @@ var Screens = {
    on the network. */
 var NameEntry = {
   name: '', vid: '', field: 'name', shift: true, vidLocked: false,
-  confirmed: false, offer: null, lookupSeq: 0, lookupTimer: null, checking: false,
+  confirmed: false, offer: null, prompt: null, lookupSeq: 0, lookupTimer: null, checking: false,
   ROWS: [['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'], ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
     ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', '-'], ['SHIFT', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '.', 'DEL'], ['_', 'SPACE', 'GO']],
   init: function () {
@@ -1072,43 +1073,70 @@ var NameEntry = {
     }
     this.paint();
   },
-  /* The badge changed: forget any confirmation and look the new one up ~0.7 s after typing stops. */
+  /* The badge changed: forget any confirmation. Once the badge looks complete (it matches the
+     badge ID rule from the Hub's Settings) and typing has paused, check it by itself:
+       registered     → "Welcome, <first name> — is this you?"   (Yes / No)
+       not registered → "<badge> isn't registered yet."          (Register now / Fix my badge ID)
+     Nothing is shown for a partial badge, and there are no suggestions: badge IDs and names of
+     other visitors can never be browsed from the game screen. */
+  CHECK_AFTER_MS: 1200,
+  badgeComplete: function (badge) {
+    var re; try { re = new RegExp(Store.settings.badgePattern || '^[A-Z0-9-]{4,20}$'); } catch (e) { re = /^[A-Z0-9-]{4,20}$/; }
+    return re.test(badge);
+  },
   badgeChanged: function () {
     var self = this, seq = ++self.lookupSeq, badge = self.vid.trim();
-    self.confirmed = false; self.hideOffer();
+    self.confirmed = false; self.hidePrompt();
     clearTimeout(self.lookupTimer);
-    if (badge.length < 4 || !Hub.enabled()) return;
-    self.lookupTimer = setTimeout(function () {
-      Hub.lookup(badge).then(function (r) {
-        // ignore stale answers (badge edited since, or the player moved on)
-        if (seq !== self.lookupSeq || Screens.current !== 'name' || Admin.isOpen || !r || !r.found || !r.firstName) return;
-        self.showOffer(r.firstName);
-      });
-    }, 700);
+    if (!Hub.enabled() || !self.badgeComplete(badge)) return;
+    self.lookupTimer = setTimeout(function () { self.check(badge, seq); }, self.CHECK_AFTER_MS);
+  },
+  check: function (badge, seq) {
+    var self = this;
+    return Hub.lookup(badge).then(function (r) {
+      // ignore stale answers (badge edited since, or the player moved on); null = Hub unreachable
+      if (seq !== self.lookupSeq || Screens.current !== 'name' || Admin.isOpen || Register.isOpen || !r) return r;
+      if (r.found) self.showOffer(r.firstName || '');
+      else self.showRegister(badge);
+      return r;
+    });
   },
   /* The display name only allows A–Z, 0–9, space . _ - (max 16): strip accents and anything else. */
   cleanName: function (first) {
-    return String(first).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^A-Za-z0-9 ._-]/g, '').trim().slice(0, NAME_MAX);
+    return String(first).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9 ._-]/g, '').trim().slice(0, NAME_MAX);
   },
-  showOffer: function (first) {
-    this.offer = this.cleanName(first);
-    $('nc-text').innerHTML = 'Welcome, <b>' + esc(first) + '</b> — is this you?';
+  /* The prompt strip takes the heading's place. kind: 'offer' (registered) | 'register' (not registered). */
+  showPrompt: function (kind, html, yes, no) {
+    this.prompt = kind;
+    $('nc-text').innerHTML = html; $('nc-yes').textContent = yes; $('nc-no').textContent = no;
     $('name-head').classList.add('off'); $('name-confirm').classList.add('on');
     Activity.ping();
   },
-  hideOffer: function () {
-    this.offer = null;
+  showOffer: function (first) {
+    this.offer = this.cleanName(first);
+    this.showPrompt('offer', 'Welcome, <b>' + esc(first) + '</b> — is this you?', 'Yes', 'No');
+  },
+  showRegister: function (badge) {
+    this.showPrompt('register', '<b>' + esc(badge) + '</b> isn’t registered yet.', 'Register now', 'Fix my badge ID');
+  },
+  hidePrompt: function () {
+    this.offer = null; this.prompt = null;
     $('name-confirm').classList.remove('on'); $('name-head').classList.remove('off');
   },
   answerOffer: function (yes) {
-    if (yes) {
+    var kind = this.prompt;
+    this.hidePrompt();
+    if (kind === 'register') {
+      if (yes) Register.open(this.vid.trim());   // the form, over the game, badge prefilled
+      else this.field = 'vid';                    // keep what they typed so they can correct it
+    } else if (yes) {
       if (this.offer && this.offer.length >= 2) this.name = this.offer;   // the player can still change it
       this.confirmed = true; this.field = 'name'; this.shift = false;
     } else {
       this.confirmed = false;
       if (!this.vidLocked) { this.vid = ''; this.field = 'vid'; }        // wrong badge: let them retype it
     }
-    this.hideOffer(); Activity.ping(); this.paint();
+    Activity.ping(); this.paint();
   },
   paint: function () {
     var caret = '<span class="caret"></span>';
@@ -1124,9 +1152,10 @@ var NameEntry = {
     return BLOCKED_WORDS.concat(BLOCKED_PARTS).some(function (b) { return words.indexOf(b) >= 0; }) ||
       BLOCKED_PARTS.some(function (b) { return squashed.indexOf(b) >= 0; });
   },
-  /* "Choose domain". The Badge ID is required. Unless already confirmed, it is checked with the Hub:
-       registered     → "Welcome, <first name> — is this you?" (Yes fills the name; then Choose domain again)
-       not registered → the registration form opens over the game, badge prefilled (Register below)
+  /* "Choose domain". The Badge ID is required. Normally it has already been checked while typing;
+     if not (tapped before the check), it is checked now, with the same prompts:
+       registered     → "Welcome, <first name> — is this you?"
+       not registered → "<badge> isn't registered yet." (Register now / Fix my badge ID)
        Hub unreachable, or not signed in → play anyway; the badge is kept unconfirmed for later matching
      Standalone (no Hub) the typed badge is kept unconfirmed. */
   submit: function () {
@@ -1140,7 +1169,7 @@ var NameEntry = {
       self.checking = false; $('name-go').textContent = 'Choose domain'; self.paint();
       if (seq !== self.lookupSeq || Screens.current !== 'name' || Admin.isOpen) return;
       if (r && r.found) return self.showOffer(r.firstName || '');
-      if (r) return Register.open(badge);
+      if (r) return self.showRegister(badge);
       self.play();
     });
   },
@@ -1151,7 +1180,7 @@ var NameEntry = {
     var nice = this.cleanName(first);
     if (nice.length >= 2) this.name = nice;
     this.confirmed = true; this.field = 'name'; this.shift = false;
-    this.hideOffer(); $('name-msg').textContent = ''; this.paint();
+    this.hidePrompt(); $('name-msg').textContent = ''; this.paint();
   },
   play: function () {
     var n = this.name.trim();
@@ -1513,6 +1542,7 @@ var Hub = {
         return res.json().then(function (c) {
           if (!self.usable(c)) { self.status.content = 'Hub has no playable questions yet: keeping the current ones'; return false; }
           Store.data.domains = c.domains; Store.data.questions = c.questions;
+          if (typeof c.badgePattern === 'string') s.badgePattern = c.badgePattern;   // badge ID rule from Settings
           s.contentEtag = etag; s.contentVersion = c.version || ''; s.lastContentAt = Date.now();
           self.status.content = 'updated';
           return Store.saveMany(['domains', 'questions', 'settings']).then(function () { return true; });

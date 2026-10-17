@@ -5,8 +5,9 @@
 //
 // A. Offline (the brief's test): disconnect mid-round, reload with no server (service worker),
 //    play 3 rounds offline, reconnect → every round synced exactly once, every play stored.
-// B. Register from the game: badge required; unregistered badge → registration form over the
-//    game with the badge prefilled, music keeps playing; saved → back with first name, confirmed.
+// B. Register from the game: badge required; a complete badge is checked as it is typed (no
+//    suggestions); unregistered → "isn't registered yet" → Register now → the form over the game
+//    with the badge prefilled, music keeps playing; saved → back with first name, confirmed.
 // C. Standalone file (no Hub): zero network requests; badge required; plays unconfirmed.
 import { execSync, spawn } from 'node:child_process';
 import { randomBytes, scrypt } from 'node:crypto';
@@ -161,8 +162,24 @@ async function flowRegister(sql, cookie) {
     check('badge required: Choose domain disabled with only a name', await c.eval('document.getElementById("name-go").disabled'));
     await reset();
 
+    // a partial badge (does not match the badge rule yet) shows nothing
+    await typeIn('f-vid', 'E2E');
+    await sleep(2500);
+    check('partial badge: no prompt, nothing revealed', !(await c.eval('document.getElementById("name-confirm").classList.contains("on")')));
+    await reset();
+
+    // a complete unregistered badge is checked by itself, without tapping Choose domain
     await typeIn('f-vid', 'e2e-new1');
-    await c.eval('document.getElementById("name-go").click(); true');
+    await c.waitFor('document.getElementById("name-confirm").classList.contains("on")', 8000);
+    const ask = await c.eval('[document.getElementById("nc-text").textContent, document.getElementById("nc-yes").textContent, document.getElementById("nc-no").textContent]');
+    check('unregistered badge, checked as typed: asks before opening the form',
+      ask[0] === 'E2E-NEW1 isn’t registered yet.' && ask[1] === 'Register now' && ask[2] === 'Fix my badge ID'
+      && !(await c.eval('document.getElementById("s-reg").classList.contains("on")')), ask);
+    await c.eval('document.getElementById("nc-no").click(); true');
+    check('"Fix my badge ID" keeps the typed badge for correcting', (await c.eval('[PharmaNinja.NameEntry.vid, PharmaNinja.NameEntry.field]')).join() === 'E2E-NEW1,vid');
+    await c.eval('PharmaNinja.NameEntry.key("DEL"); PharmaNinja.NameEntry.type("1"); true');   // retype the last character → checked again
+    await c.waitFor('document.getElementById("name-confirm").classList.contains("on")', 8000);
+    await c.eval('document.getElementById("nc-yes").click(); true');   // Register now
     await c.waitFor('document.getElementById("s-reg").classList.contains("on")', 8000);
     await c.waitFor(`!!(${frameDoc} && ${frameDoc}.querySelector('[name=fullName]'))`, 15000);
     await sleep(2000);   // form scripts ready
@@ -185,9 +202,8 @@ async function flowRegister(sql, cookie) {
     await c.eval('document.getElementById("pk-back").click(); true');
     await c.waitFor('PharmaNinja.Screens.current === "name"');
     await reset(); await typeIn('f-vid', 'E2E-0001');
-    await c.eval('document.getElementById("name-go").click(); true');
     await c.waitFor('document.getElementById("name-confirm").classList.contains("on")', 8000);
-    check('a registered badge gets the welcome prompt, not the form',
+    check('a registered badge gets the welcome by itself, not the form',
       (await c.eval('document.getElementById("nc-text").textContent')) === 'Welcome, Asha — is this you?' && !(await c.eval('document.getElementById("s-reg").classList.contains("on")')));
     check('no page errors', pageErrors(c).length === 0, pageErrors(c));
   } finally { await c.close(); }

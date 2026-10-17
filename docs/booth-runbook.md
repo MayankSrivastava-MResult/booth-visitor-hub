@@ -18,7 +18,7 @@
    1. Import the CSV.
    2. Check that each domain has at least 20 enabled questions.
    3. Then **Delete TEST questions**.
-4. **Settings:** add the podcast topics and the demo list.
+4. **Settings:** add the podcast topics and the demo list. As soon as the organisers share the real badge ID format, set it as the **Badge ID rule**, so the game only checks complete badge IDs.
 5. **Clear the test data** (Hub → **Data** → **Purge all event data**). Do this after any rehearsal, and before doors open on 2 November.
 6. **Print the QR code** (Hub → **QR code** → Print or Download SVG) for the booth and the podcast table.
 
@@ -36,7 +36,7 @@
    - **Results waiting to send:** should drop to 0 when the network is up.
    - **Remove a leaderboard name** or **Reset today:** for tidying the leaderboard.
 
-**Players need their badge ID.** If it's registered, the game greets them by first name. If it isn't, the registration form opens inside the game, and they're back playing within a minute.
+**Players need their badge ID.** The game checks it by itself once it's fully typed. If it's registered, the game greets them by first name. If it isn't, it shows "isn't registered yet" with **Register now**: the form opens inside the game, and they're back playing within a minute.
 
 ## 3. The team at the booth
 

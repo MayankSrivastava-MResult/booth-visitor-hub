@@ -161,6 +161,8 @@ describe('game screen accounts and the game API', () => {
     const c = await r.json();
     expect(c.domains.map((d: { id: string }) => d.id)).toContain('regops');
     expect(c.questions.find((q: { id: string }) => q.id === 'ro-02')).toMatchObject({ domainId: 'regops', correctIndex: 0, options: ['FDA', 'EMA', 'PMDA', 'CDSCO'] });
+    const [{ pattern }] = await owner`select badge_pattern as pattern from hub.settings`;
+    expect(c.badgePattern).toBe(pattern);   // the game knows when a typed badge is complete
     const etag = r.headers.get('etag')!;
     expect((await contentRoute.GET(req('/api/game/content', { cookie: game, headers: { 'if-none-match': etag } }))).status).toBe(304);
     // staff and admin can run the game too

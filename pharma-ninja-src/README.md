@@ -41,10 +41,10 @@ rules, or if the game's code contains any absolute web address (the game only ta
 Open the Hub on any device and sign in. A **Game screen** account goes straight to `/play`; admin and staff can use
 "Play Pharma Ninja" on the Hub home page.
 
-**Badge ID is required to play.** On "Choose domain" the badge is checked with the Hub:
+**Badge ID is required to play.** Once the typed badge matches the Badge ID rule from the Hub's Settings and typing pauses, the game checks it with the Hub by itself ("Choose domain" also checks it, if tapped first). There are no suggestions while typing, so other visitors' badge IDs and names can't be browsed:
 - **Registered:** "Welcome, <first name> — is this you?". Yes fills in the display name.
-- **Not registered:** the Hub's registration form (`/register?kiosk=1`) opens over the game, with the badge filled
-  in. The game page stays open, so the music keeps playing. Saving brings the player straight back with their
+- **Not registered:** "<badge> isn't registered yet" with **Register now** and **Fix my badge ID**. Register now opens
+  the Hub's registration form (`/register?kiosk=1`) over the game, with the badge filled in. The game page stays open, so the music keeps playing. Saving brings the player straight back with their
   first name as the display name and the badge confirmed. Autofill is off on that form, so the next visitor never
   sees the previous visitor's details.
 - **Hub unreachable, or the screen not signed in:** the player plays anyway and the badge is kept unconfirmed,
