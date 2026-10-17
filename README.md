@@ -27,6 +27,9 @@ Next.js (App Router, TypeScript) on Vercel; Postgres on Supabase (used as plain 
 | `tests/` | Database-policy and API tests against a real throwaway Postgres 17. |
 | `pharma-ninja-src/` | The game's source (see its own README). Served at `/play`. |
 
+**Running the booth:** see [docs/booth-runbook.md](docs/booth-runbook.md): setup, daily routine, what to do when
+something breaks, paid plans, moving to EC2.
+
 ## Security model (short)
 
 - Three kinds of account: **admin**, **staff**, and **game** (a public game screen: can only run Pharma Ninja).
@@ -42,6 +45,8 @@ Next.js (App Router, TypeScript) on Vercel; Postgres on Supabase (used as plain 
 nvm use                      # Node 22
 npm install
 npm test                     # starts a throwaway Postgres 17, applies migrations, runs all tests
+npm run test:e2e             # the real game in Chrome against a production build (offline test included)
+npm run test:load            # busy-booth load check on this machine
 npm run dev:db               # local Postgres on :54330 (leave running)
 DATABASE_URL=postgres://hub_api:dev-only@localhost:54330/postgres npm run dev
 ```

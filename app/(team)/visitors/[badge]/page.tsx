@@ -47,6 +47,7 @@ export default async function VisitorPage({ params }: { params: Promise<{ badge:
           <dt>Consent</dt><dd>Yes (notice v{v.consentVersion}, {formatIst(v.consentAt)}) · Marketing: {v.marketingOptIn ? 'yes' : 'no'}</dd>
           {v.updatedByName && <><dt>Last edited</dt><dd>{formatIst(v.updatedAt)} by {v.updatedByName}</dd></>}
         </dl>
+        {user.role === 'admin' && <p className="small"><a href={`/admin/data?badge=${encodeURIComponent(v.badgeId)}`}>Delete this visitor and all their records…</a></p>}
         {user.role === 'admin' && <EditVisitor visitor={{ badgeId: v.badgeId, fullName: v.fullName, company: v.company, jobTitle: v.jobTitle,
           email: v.email, mobile: v.mobile ?? '', linkedinUrl: v.linkedinUrl ?? '', marketingOptIn: v.marketingOptIn }} />}
       </div>
