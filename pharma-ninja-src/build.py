@@ -1,18 +1,36 @@
 """Build Pharma Ninja into ONE self-contained, offline HTML file.
 
-Usage:  python3 build.py            -> dist/pharma-ninja.html
-        python3 build.py OUT.html   -> custom output path
+Usage:  python3 build.py              -> dist/pharma-ninja.html (standalone; runs from a file, no Hub)
+        python3 build.py OUT.html     -> custom output path
+        python3 build.py --hub DIR    -> DIR/pharma-ninja.html + DIR/play-sw.js, served by the
+                                         Booth Visitor Hub at /play (run by the Hub's own build)
+Optional: --allow-origin https://hub.example  (see the offline rule below)
 
 Inlines: Phaser 3.90.0 (vendor/), Barlow and Barlow Condensed WOFF2 (vendor/fonts/,
 SIL OFL), the reversed MResult logo (assets/), seed data and app code (src/).
 Fails the build if any seed question breaks the capsule rules, or if the output
 references any external http(s) URL. Never hand-edit the built HTML: change src/ and rebuild.
+
+Offline rule: the page may load nothing from any external origin, and the game's own
+code (app.js, the template, the service worker) may contain no absolute http(s) URL
+at all, except the --allow-origin value if given. The game talks to the Hub with
+relative paths (same origin), so normally no origin needs allowing.
 """
-import base64, subprocess, sys, pathlib, re
+import base64, hashlib, subprocess, sys, pathlib, re
 
 ROOT = pathlib.Path(__file__).resolve().parent
 SRC, VENDOR = ROOT / 'src', ROOT / 'vendor'
-OUT = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / 'dist' / 'pharma-ninja.html'
+
+args = sys.argv[1:]
+def take(flag):
+    if flag in args:
+        i = args.index(flag); val = args[i + 1]; del args[i:i + 2]; return val
+    return None
+HUB_DIR = take('--hub')
+ALLOW_ORIGIN = take('--allow-origin')
+if HUB_DIR: OUT = pathlib.Path(HUB_DIR) / 'pharma-ninja.html'
+elif args: OUT = pathlib.Path(args[0])
+else: OUT = ROOT / 'dist' / 'pharma-ninja.html'
 
 def b64(p): return base64.b64encode(pathlib.Path(p).read_bytes()).decode()
 
@@ -44,7 +62,20 @@ for k, v in subs.items():
 # 2. offline check: nothing may be fetched from an external origin at runtime
 urls = re.findall(r'(?:src|href)\s*=\s*["\']https?://', html) + re.findall(r'url\(\s*["\']?https?://', html)
 assert not urls, f'external references found: {urls}'
+sw = (SRC / 'sw.template.js').read_text()
+own = [u for u in re.findall(r'https?://[^\s"\'`<>)]+', app + (SRC / 'index.template.html').read_text() + sw)
+       if not (ALLOW_ORIGIN and u.startswith(ALLOW_ORIGIN))]
+assert not own, f'absolute URLs in the game code (only same-origin paths are allowed): {own}'
 
 OUT.parent.mkdir(parents=True, exist_ok=True)
 OUT.write_text(html)
 print(f'Wrote {OUT} ({OUT.stat().st_size/1024/1024:.2f} MB)')
+
+# 3. Hub mode: the service worker that keeps /play working offline. Its cache name
+#    carries a hash of this build, so a new build replaces the old cached copy.
+if HUB_DIR:
+    version = hashlib.sha256(html.encode()).hexdigest()[:16]
+    assert sw.count('__VERSION__') == 1, 'sw.template.js must contain __VERSION__ exactly once'
+    sw_out = pathlib.Path(HUB_DIR) / 'play-sw.js'
+    sw_out.write_text(sw.replace('__VERSION__', version))
+    print(f'Wrote {sw_out} (cache version {version})')

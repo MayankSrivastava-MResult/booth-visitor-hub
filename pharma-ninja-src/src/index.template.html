@@ -6,9 +6,12 @@
 <title>Pharma Ninja · MResult</title>
 <!--
   PHARMA NINJA — MResult booth game (Global Pharma Partnering Summit 2026)
-  Milestone 1: Wednesday prototype.
   Single self-contained file: Phaser 3.90.0, fonts (Barlow, SIL OFL) and the
-  logo are inlined. No network is used at runtime.
+  logo are inlined. Nothing is ever loaded from another site.
+  Standalone (opened as a file) it uses no network at all. Served by the Booth
+  Visitor Hub at /play on a signed-in device, it also syncs content and results
+  with the Hub in the background (app.js section 12) and stays fully playable
+  offline.
 
   Layers:
     #stage  Phaser canvas: capsules, slicing, particles, trail, attract demo
@@ -113,6 +116,17 @@ button:focus-visible { outline: 0.3rem solid var(--white); outline-offset: 0.3re
 .caret { display: inline-block; width: 0.3rem; height: 0.9em; background: var(--orange); vertical-align: -0.1em; margin-left: 0.3rem; animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 .name-msg { min-height: 3rem; font-size: 2.4rem; color: var(--miss); }
+.name-top { display: grid; width: min(150rem, 100%); }
+.name-head, .name-confirm { grid-area: 1 / 1; }
+.name-head { display: flex; flex-direction: column; align-items: center; gap: 0.8rem; text-align: center; }
+.name-head.off { visibility: hidden; }
+.name-confirm { visibility: hidden; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 1.6rem 3.2rem; }
+.name-confirm.on { visibility: visible; animation: pop 0.35s cubic-bezier(.2,.9,.3,1.4); }
+.nc-text { font-family: var(--display); font-weight: 700; font-size: 5.2rem; line-height: 1.1; text-align: center; }
+.nc-text b { color: var(--orange); font-weight: 800; }
+.nc-btns { display: flex; gap: 1.6rem; }
+.nc-btns .btn-primary { font-size: 4rem; height: 8.8rem; padding: 0 5.6rem; }
+.nc-btns .btn-ghost { font-size: 2.6rem; height: 8.8rem; padding: 0 4.4rem; }
 .kb { display: flex; flex-direction: column; gap: 1.2rem; width: min(150rem, 100%); }
 .kb-row { display: flex; gap: 1.2rem; justify-content: center; }
 .key { flex: 1 1 0; max-width: 13rem; height: 9rem; border-radius: 1.6rem; background: var(--panel); font-family: var(--display); font-weight: 700; font-size: 4rem; }
@@ -218,8 +232,13 @@ button:focus-visible { outline: 0.3rem solid var(--white); outline-offset: 0.3re
 
 /* ---- Admin (functional, not themed) ---- */
 #s-admin { background: rgba(10,10,10,0.92); font-family: system-ui, 'Segoe UI', sans-serif; }
-.adm { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(80rem, 94vw); background: #fff; color: #1F1F1F; border-radius: 1.2rem; padding: 3.2rem; display: flex; flex-direction: column; gap: 2rem; font-size: 2rem; }
+.adm { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(80rem, 94vw); background: #fff; color: #1F1F1F; border-radius: 1.2rem; padding: 3.2rem; display: flex; flex-direction: column; gap: 2rem; font-size: 2rem;
+  max-height: 94vh; overflow-y: auto; touch-action: pan-y; overscroll-behavior: contain; }
 .adm h2 { margin: 0; font-size: 3rem; }
+.adm h3 { margin: 1.2rem 0 0; font-size: 2.2rem; color: #666; text-transform: uppercase; letter-spacing: 0.1rem; }
+.adm input[type=range] { width: 28rem; height: 4rem; accent-color: #1F1F1F; touch-action: pan-x; }
+.adm button[disabled] { opacity: 0.4; }
+.adm .note.ok { color: #1E6B3A; font-weight: 600; }
 .adm .pin { font-size: 5rem; letter-spacing: 1.2rem; text-align: center; font-family: ui-monospace, Consolas, monospace; min-height: 6rem; }
 .adm .pad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
 .adm .pad button, .adm .row button { height: 8rem; border-radius: 0.8rem; background: #EEE; font-size: 3rem; font-weight: 600; }
@@ -288,11 +307,20 @@ button:focus-visible { outline: 0.3rem solid var(--white); outline-offset: 0.3re
     <div class="frame">
       <div class="topbar"><div class="wm" data-svg="wordmark-h"></div><button class="btn-ghost" id="name-back" style="height:6.8rem;padding:0 3rem;font-size:2.2rem">Back</button></div>
       <div class="name-wrap">
-        <h1 class="h1 display">Pick a display name</h1>
-        <div class="sub" style="margin-top:-1.6rem">It goes on today’s leaderboard. No real name needed.</div>
+        <!-- The badge confirmation takes the heading's place (same grid cell), so nothing below moves -->
+        <div class="name-top">
+          <div class="name-head" id="name-head">
+            <h1 class="h1 display">Pick a display name</h1>
+            <div class="sub">It goes on today’s leaderboard. No real name needed.</div>
+          </div>
+          <div class="name-confirm" id="name-confirm" role="status">
+            <div class="nc-text" id="nc-text"></div>
+            <div class="nc-btns"><button class="btn-primary" id="nc-yes">Yes</button><button class="btn-ghost" id="nc-no">No</button></div>
+          </div>
+        </div>
         <div class="fields">
           <button class="field active" id="f-name"><label>Display name</label><div class="val" id="v-name"></div></button>
-          <button class="field small" id="f-vid"><label>Visitor ID (optional)</label><div class="val" id="v-vid"></div></button>
+          <button class="field small" id="f-vid"><label>Badge ID (optional)</label><div class="val" id="v-vid"></div></button>
         </div>
         <div class="name-msg" id="name-msg"></div>
         <div class="kb" id="kb"></div>

@@ -13,8 +13,13 @@
  *   7. Input        — Pointer Events → swipe trails → slice detection
  *   8. Round        — game rules: questions, scoring, streaks, lives, timer
  *   9. Screens      — DOM screens: attract, name entry, picker, HUD, results
- *  10. Admin        — Milestone 1 stub: PIN + sound / quiet mode
+ *  10. Admin        — PIN, then: sound, play zone, Booth Hub connection,
+ *                     sync status, leaderboard reset / entry removal
  *  11. Boot & recovery
+ *  12. Hub sync     — only when served by the Booth Visitor Hub at /play, using
+ *                     the Hub sign-in of this browser: content refresh, badge
+ *                     lookup, round outbox, offline service worker. Standalone
+ *                     (file://) the game behaves exactly as Milestone 1.
  * ===================================================================== */
 (function () {
 'use strict';
@@ -38,7 +43,8 @@ var DEFAULT_SETTINGS = {
   idleSeconds: 30,        // idle time before returning to attract mode
   pin: '2026',
   maxPixelRatio: 2,       // device-pixel-ratio cap for performance
-  leaderboardResetAt: 0   // manual reset timestamp (used by the M2 admin)
+  leaderboardResetAt: 0,  // manual reset timestamp ("Reset today's leaderboard" in admin)
+  contentEtag: '', contentVersion: '', lastContentAt: 0, lastSyncAt: 0   // Booth Hub sync bookkeeping (section 12)
 };
 var NAME_MAX = 16, VID_MAX = 24;
 var BASE_POINTS = 100, MIN_POINTS = 20;
@@ -162,10 +168,11 @@ function fillSvgSlots(root) {
  * 3. STORE
  * Everything is kept in the browser: IndexedDB first, localStorage if
  * IndexedDB is unavailable, memory as a last resort. Keys:
- *   settings, domains, questions, rounds (leaderboard history), plays (per-question log)
+ *   settings, domains, questions, rounds (leaderboard history), plays (per-question log),
+ *   outbox (finished rounds waiting to be sent to the Booth Hub)
  * ------------------------------------------------------------------- */
 var Store = {
-  KEYS: ['settings', 'domains', 'questions', 'rounds', 'plays'],
+  KEYS: ['settings', 'domains', 'questions', 'rounds', 'plays', 'outbox'],
   data: {}, mode: 'mem', db: null,
   init: function () {
     var self = this;
@@ -182,6 +189,7 @@ var Store = {
       if (!self.data.questions) { self.data.questions = JSON.parse(JSON.stringify(SEED_QUESTIONS)); seeded.push('questions'); }
       if (!self.data.rounds) { self.data.rounds = []; seeded.push('rounds'); }
       if (!self.data.plays) { self.data.plays = []; seeded.push('plays'); }
+      if (!self.data.outbox) { self.data.outbox = []; seeded.push('outbox'); }
       self.data.settings = Object.assign({}, DEFAULT_SETTINGS, self.data.settings || {});
       seeded.push('settings');
       seeded.forEach(function (k) { self.save(k); });
@@ -215,6 +223,22 @@ var Store = {
     } else if (self.mode === 'ls') {
       try { localStorage.setItem('pharmaNinja:' + key, JSON.stringify(val)); } catch (e) { self.mode = 'mem'; }
     }
+  },
+  /* Save several keys in ONE IndexedDB transaction and resolve once it has committed
+     (at once in localStorage / memory mode). Never rejects. Used so that a finished
+     round, its plays and its outbox entry are always saved together. */
+  saveMany: function (keys) {
+    var self = this;
+    function fallback() { self.mode = 'ls'; keys.forEach(function (k) { self.save(k); }); }
+    if (self.mode !== 'idb') { keys.forEach(function (k) { self.save(k); }); return Promise.resolve(); }
+    return new Promise(function (resolve) {
+      try {
+        var tx = self.db.transaction('kv', 'readwrite'), st = tx.objectStore('kv');
+        keys.forEach(function (k) { st.put(JSON.parse(JSON.stringify(self.data[k])), k); });
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = tx.onabort = function () { fallback(); resolve(); };
+      } catch (e) { fallback(); resolve(); }
+    });
   },
   get settings() { return this.data.settings; },
   enabledDomains: function () { return this.data.domains.filter(function (d) { return d.enabled; }); },
@@ -353,7 +377,8 @@ var Sound = {
 var Leaderboard = {
   todayRounds: function () {
     var today = istDate(Date.now()), resetAt = Store.settings.leaderboardResetAt || 0;
-    return Store.data.rounds.filter(function (r) { return r.date === today && r.ts > resetAt; });
+    // hidden = removed from the board in admin (the round itself is kept for the records)
+    return Store.data.rounds.filter(function (r) { return r.date === today && r.ts > resetAt && !r.hidden; });
   },
   bestPerName: function () {
     var best = {};
@@ -882,8 +907,10 @@ var Round = {
     Stage.dismissOthers(); Sound.play('end'); Hud.banner(reason);
     var correct = st.answers.filter(function (a) { return a.result === 'correct'; }).length;
     var round = { roundId: st.id, ts: Date.now(), date: istDate(Date.now()), displayName: st.player.displayName, visitorId: st.player.visitorId || '',
+      badgeConfirmed: !!st.player.badgeConfirmed,
       domainId: st.domain.id, score: st.score, questions: st.answers.length, correct: correct, longestStreak: st.longest, endReason: reason };
-    Store.data.rounds.push(round); Store.save('rounds'); Store.save('plays');
+    Store.data.rounds.push(round);
+    Hub.roundFinished(round);   // saves rounds + plays + outbox entry together, then syncs in the background
     st.round = round; st.rank = Leaderboard.rankOf(round.displayName, round.score);
     var self = this;
     setTimeout(function () { self.active = false; Stage.setMode('off'); Screens.results(st); }, 1300);
@@ -955,15 +982,21 @@ var Screens = {
   }
 };
 
-/* Name entry with the built-in keyboard (physical keyboard also works for laptop testing) */
+/* Name entry with the built-in keyboard (physical keyboard also works for laptop testing).
+   The optional second field is the visitor's Badge ID (stored uppercased). When the Hub is
+   reachable, a typed badge is looked up in the background; if it is registered the player
+   sees "Welcome, <first name> — is this you?". Yes prefills the display name and marks the
+   badge confirmed; No clears the badge. A failed or slow lookup changes nothing: the player
+   carries on and the badge is stored unconfirmed. Nothing here ever waits for the network. */
 var NameEntry = {
   name: '', vid: '', field: 'name', shift: true, vidLocked: false,
+  confirmed: false, offer: null, lookupSeq: 0, lookupTimer: null,
   ROWS: [['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'], ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
     ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', '-'], ['SHIFT', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '.', 'DEL'], ['_', 'SPACE', 'GO']],
   init: function () {
     var self = this, kb = $('kb'), h = '';
     var params = new URLSearchParams(location.search), urlVid = params.get('visitorId') || params.get('vid');
-    if (urlVid) { this.urlVid = urlVid.slice(0, VID_MAX); }
+    if (urlVid) { this.urlVid = urlVid.slice(0, VID_MAX).toUpperCase(); }
     this.ROWS.forEach(function (row) {
       h += '<div class="kb-row">';
       row.forEach(function (k) {
@@ -983,6 +1016,8 @@ var NameEntry = {
     $('f-name').addEventListener('click', function () { self.field = 'name'; self.paint(); });
     $('f-vid').addEventListener('click', function () { if (!self.vidLocked) { self.field = 'vid'; self.paint(); } });
     $('name-go').addEventListener('click', function () { self.submit(); });
+    $('nc-yes').addEventListener('click', function () { self.answerOffer(true); });
+    $('nc-no').addEventListener('click', function () { self.answerOffer(false); });
     window.addEventListener('keydown', function (e) {
       if (Screens.current !== 'name' || Admin.isOpen) return;
       Activity.ping();
@@ -997,10 +1032,19 @@ var NameEntry = {
     this.vidLocked = !!this.urlVid; this.vid = this.urlVid || (player ? player.visitorId || '' : '');
     this.shift = !this.name; $('name-msg').textContent = '';
     Screens.show('name'); if (Stage) Stage.setMode('off'); Activity.ping(); this.paint();
+    // Returning from the picker keeps a confirmed badge; otherwise look a prefilled badge up.
+    var keep = !!(player && player.badgeConfirmed && player.visitorId === this.vid);
+    this.badgeChanged();
+    this.confirmed = keep;
+    if (keep) { clearTimeout(this.lookupTimer); this.lookupSeq++; }
   },
   key: function (k) {
     if (k === 'SHIFT') { this.shift = !this.shift; return this.paint(); }
-    if (k === 'DEL') { if (this.field === 'name') this.name = this.name.slice(0, -1); else this.vid = this.vid.slice(0, -1); if (this.field === 'name' && !this.name) this.shift = true; return this.paint(); }
+    if (k === 'DEL') {
+      if (this.field === 'name') this.name = this.name.slice(0, -1); else { this.vid = this.vid.slice(0, -1); this.badgeChanged(); }
+      if (this.field === 'name' && !this.name) this.shift = true;
+      return this.paint();
+    }
     if (k === 'SPACE') return this.type(' ');
     this.type(this.shift ? k.toUpperCase() : k.toLowerCase());
   },
@@ -1013,14 +1057,50 @@ var NameEntry = {
       this.shift = ch === ' ';
     } else {
       if (this.vid.length >= VID_MAX || !/^[A-Za-z0-9_-]$/.test(ch)) return;
-      this.vid += ch;
+      this.vid += ch.toUpperCase();          // badge IDs are uppercase
+      this.badgeChanged();
     }
     this.paint();
+  },
+  /* The badge changed: forget any confirmation and look the new one up ~0.7 s after typing stops. */
+  badgeChanged: function () {
+    var self = this, seq = ++self.lookupSeq, badge = self.vid.trim();
+    self.confirmed = false; self.hideOffer();
+    clearTimeout(self.lookupTimer);
+    if (badge.length < 4 || !Hub.enabled()) return;
+    self.lookupTimer = setTimeout(function () {
+      Hub.lookup(badge).then(function (r) {
+        // ignore stale answers (badge edited since, or the player moved on)
+        if (seq !== self.lookupSeq || Screens.current !== 'name' || Admin.isOpen || !r || !r.found || !r.firstName) return;
+        self.showOffer(r.firstName);
+      });
+    }, 700);
+  },
+  showOffer: function (first) {
+    // The display name only allows A–Z, 0–9, space . _ - (max 16): strip accents and anything else.
+    this.offer = String(first).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^A-Za-z0-9 ._-]/g, '').trim().slice(0, NAME_MAX);
+    $('nc-text').innerHTML = 'Welcome, <b>' + esc(first) + '</b> — is this you?';
+    $('name-head').classList.add('off'); $('name-confirm').classList.add('on');
+    Activity.ping();
+  },
+  hideOffer: function () {
+    this.offer = null;
+    $('name-confirm').classList.remove('on'); $('name-head').classList.remove('off');
+  },
+  answerOffer: function (yes) {
+    if (yes) {
+      if (this.offer && this.offer.length >= 2) this.name = this.offer;   // the player can still change it
+      this.confirmed = true; this.field = 'name'; this.shift = false;
+    } else {
+      this.confirmed = false;
+      if (!this.vidLocked) { this.vid = ''; this.field = 'vid'; }        // wrong badge: let them retype it
+    }
+    this.hideOffer(); Activity.ping(); this.paint();
   },
   paint: function () {
     var caret = '<span class="caret"></span>';
     $('v-name').innerHTML = this.name ? esc(this.name) + (this.field === 'name' ? caret : '') : (this.field === 'name' ? caret : '') + '<span class="ph">Your name</span>';
-    $('v-vid').innerHTML = this.vid ? esc(this.vid) + (this.field === 'vid' ? caret : '') : (this.field === 'vid' ? caret : '') + '<span class="ph">Badge or code</span>';
+    $('v-vid').innerHTML = this.vid ? esc(this.vid) + (this.field === 'vid' ? caret : '') : (this.field === 'vid' ? caret : '') + '<span class="ph">On your event badge</span>';
     $('f-name').classList.toggle('active', this.field === 'name'); $('f-vid').classList.toggle('active', this.field === 'vid');
     $('k-shift').classList.toggle('on', this.shift);
     $('name-go').disabled = this.name.trim().length < 2;
@@ -1035,7 +1115,7 @@ var NameEntry = {
     var n = this.name.trim();
     if (n.length < 2) { $('name-msg').textContent = 'Use at least 2 characters.'; return; }
     if (this.blocked(n)) { $('name-msg').textContent = 'That name can’t go on the leaderboard. Try another.'; return; }
-    Screens.player = { displayName: n, visitorId: this.vid.trim() };
+    Screens.player = { displayName: n, visitorId: this.vid.trim(), badgeConfirmed: this.confirmed && !!this.vid.trim() };
     Picker.open(Screens.player);
   }
 };
@@ -1120,10 +1200,12 @@ var Hud = {
 };
 
 /* ---------------------------------------------------------------------
- * 10. ADMIN — Milestone 1 stub
- * Opened by pressing the top-left corner for 3 seconds. PIN, then sound
- * controls and quiet mode. The full admin (questions, CSV import/export,
- * settings, play zone, PIN change, exports) arrives in Milestone 2.
+ * 10. ADMIN
+ * Opened by pressing the top-left corner for 3 seconds, then the PIN.
+ * Limited to: quiet mode; music and effects on/off and volume; play zone;
+ * Booth Hub connection (signed in or not, sign-in button) and sync status;
+ * "Refresh content now"; reset today's leaderboard; remove a leaderboard entry.
+ * Questions and domains are edited only in the Booth Hub admin.
  * ------------------------------------------------------------------- */
 var Admin = {
   isOpen: false, entry: '',
@@ -1150,17 +1232,85 @@ var Admin = {
       $('a-pin').textContent = self.entry.replace(/./g, '\u2022');
     };
   },
-  panel: function () {
+  panel: function (note) {
     var self = this, s = Store.settings;
     function row(label, key) { return '<div class="row"><span>' + label + '</span><button data-t="' + key + '" class="' + (s[key] ? 'on' : '') + '">' + (s[key] ? 'On' : 'Off') + '</button></div>'; }
-    $('adm').innerHTML = '<h2>Admin</h2>' + row('Quiet mode (mutes everything)', 'quiet') + row('Background music', 'music') + row('Sound effects', 'effects') +
-      '<div class="note">Storage: ' + Store.mode + '. Rounds saved: ' + Store.data.rounds.length + '. The full admin (questions, CSV import and export, settings, play zone, PIN) arrives in Milestone 2.</div>' +
+    function slider(label, key, min, max, step, show) {
+      return '<div class="row"><span>' + label + ' <b id="rv-' + key + '">' + show(s[key]) + '</b></span>' +
+        '<input type="range" data-r="' + key + '" min="' + min + '" max="' + max + '" step="' + step + '" value="' + s[key] + '"></div>';
+    }
+    var pct = function (v) { return Math.round(v * 100) + '%'; };
+    var zone = function (v) { return Math.round(v * 100) + '% down'; };
+    var at = function (ts) { return ts ? new Date(ts + 330 * 60000).toISOString().slice(11, 16) + ' IST' : 'never'; };
+    var waiting = Store.data.outbox.filter(function (i) { return !i.rejected; }).length, rejected = Store.data.outbox.length - waiting;
+    var served = /^https?:$/.test(location.protocol);
+    var nDom = Store.enabledDomains().length, nQ = Store.data.questions.filter(function (q) { return q.enabled; }).length;
+    var entries = Leaderboard.bestPerName();
+
+    var h = '<h2>Admin</h2>' + (note ? '<div class="note ok">' + esc(note) + '</div>' : '') +
+      '<h3>Sound</h3>' + row('Quiet mode (mutes everything)', 'quiet') +
+      row('Background music', 'music') + slider('Music volume', 'musicVolume', 0, 1, 0.05, pct) +
+      row('Sound effects', 'effects') + slider('Effects volume', 'effectsVolume', 0, 1, 0.05, pct) +
+      '<h3>Play zone</h3>' + slider('Capsules start falling', 'playZoneTop', 0.2, 0.5, 0.01, zone) +
+      '<h3>Booth Hub</h3>' +
+      '<div class="row"><span>' + (!served ? '<b>Not connected:</b> open the game from the Booth Hub (…/play).'
+        : Hub.signedIn === false ? '<b>Not signed in on this device.</b> Results are kept and will be sent after signing in.'
+        : Hub.signedIn ? 'Signed in: syncing with the Hub.' : 'Checking the connection…') + '</span>' +
+      (served && Hub.signedIn === false ? '<button data-a="signin">Sign in</button>' : '') + '</div>' +
+      '<div class="note">Results: <b>' + waiting + '</b> waiting to send' + (rejected ? ', <b>' + rejected + '</b> refused by the Hub' : '') +
+      ' · last sent ' + at(s.lastSyncAt) + (Hub.status.sync ? ' · ' + esc(Hub.status.sync) : '') + '<br>' +
+      'Questions: ' + nQ + ' in ' + nDom + ' domains · last checked ' + at(s.lastContentAt) + (Hub.status.content ? ' · ' + esc(Hub.status.content) : '') + '</div>' +
+      '<div class="row"><span>Get the latest questions from the Hub</span><button data-a="refresh"' + (served ? '' : ' disabled') + '>Refresh content now</button></div>' +
+      '<h3>Leaderboard</h3>' +
+      '<div class="row"><span>Start today’s leaderboard again</span><button data-a="reset">Reset today</button></div>' +
+      (entries.length ? entries.map(function (r) {
+        return '<div class="row"><span>' + esc(r.displayName) + ' · ' + fmt(r.score) + '</span><button data-rm="' + esc(r.displayName.toLowerCase()) + '">Remove</button></div>';
+      }).join('') : '<div class="note">No names on today’s leaderboard.</div>') +
+      '<div class="note">Storage: ' + Store.mode + '. Rounds saved on this device: ' + Store.data.rounds.length + '.</div>' +
       '<button class="close" data-x="1">Back to game</button>';
+    $('adm').innerHTML = h;
+
+    $('adm').oninput = function (e) {
+      var r = e.target.closest('[data-r]'); if (!r) return;
+      var k = r.getAttribute('data-r'); s[k] = Number(r.value);
+      $('rv-' + k).textContent = (k === 'playZoneTop' ? zone : pct)(s[k]);
+      Sound.apply();
+    };
+    $('adm').onchange = function (e) { if (e.target.closest('[data-r]')) Store.save('settings'); };
     $('adm').onclick = function (e) {
       var t = e.target.closest('[data-t]');
       if (t) { var k = t.getAttribute('data-t'); s[k] = !s[k]; Store.save('settings'); Sound.apply(); return self.panel(); }
+      var a = e.target.closest('[data-a]');
+      if (a) return self.action(a.getAttribute('data-a'), a);
+      var rm = e.target.closest('[data-rm]');
+      if (rm) {
+        var name = rm.getAttribute('data-rm'), today = istDate(Date.now());
+        if (!window.confirm('Remove "' + name + '" from today’s leaderboard?')) return;
+        Store.data.rounds.forEach(function (r) { if (r.date === today && r.displayName.toLowerCase() === name) r.hidden = true; });
+        Store.save('rounds');
+        return self.panel('Removed from today’s leaderboard.');
+      }
       if (e.target.closest('[data-x]')) self.close();
     };
+  },
+  action: function (what, btn) {
+    var self = this, s = Store.settings;
+    if (what === 'signin') {
+      // The Hub's sign-in page; a game account is brought straight back here afterwards.
+      // Everything already played stays saved on this device.
+      if (Round.active && !window.confirm('This ends the round in progress. Continue?')) return;
+      location.href = '/login';
+      return;
+    }
+    if (what === 'refresh') {
+      btn.disabled = true; btn.textContent = 'Refreshing…';
+      return Hub.refreshContent().then(function () { if (self.isOpen) self.panel('Content: ' + (Hub.status.content || 'checked')); });
+    }
+    if (what === 'reset') {
+      if (!window.confirm('Reset today’s leaderboard? Scores are kept for the records but no longer shown.')) return;
+      s.leaderboardResetAt = Date.now(); Store.save('settings');
+      return self.panel('Today’s leaderboard has been reset.');
+    }
   }
 };
 
@@ -1181,6 +1331,7 @@ var Boot = {
   start: function () {
     var self = this;
     Store.init().then(function () {
+      Hub.registerWorker(); Hub.start();   // both no-ops when not served by the Hub
       var fonts = ['500 20px Barlow', '600 20px Barlow', '700 20px "Barlow Condensed"', '800 20px "Barlow Condensed"', 'italic 800 20px "Barlow Condensed"'];
       return Promise.all(fonts.map(function (f) { return document.fonts ? document.fonts.load(f) : null; })).catch(function () {});
     }).then(function () {
@@ -1213,8 +1364,162 @@ function recover(err) {
 window.addEventListener('error', function (e) { recover(e.error || e.message); });
 window.addEventListener('unhandledrejection', function (e) { recover(e.reason); });
 
-/* Exposed for debugging in the browser console only */
-window.PharmaNinja = { Store: Store, Round: Round, Leaderboard: Leaderboard, get Stage() { return Stage; } };
+/* ---------------------------------------------------------------------
+ * 12. HUB SYNC
+ * Active only when the page is served over http(s), i.e. from the Booth Hub at
+ * /play. Requests carry this browser's Hub sign-in (a game, staff or admin
+ * account; the cookie is sent automatically on the same site). Not signed in
+ * = the Hub answers 401: the game carries on and keeps results for later.
+ * The game never waits for the network:
+ *   - Content: fetched at start, every 5 minutes and on "Refresh content now";
+ *     kept in the Store, so offline the last content (or the seed) is used.
+ *     A reply with no playable domain is ignored (keeps the current questions).
+ *   - Badge lookup: one short request (3 s timeout); any failure = unconfirmed.
+ *   - Rounds: Round.end → roundFinished() saves the round, its plays and an
+ *     outbox entry in ONE IndexedDB transaction, then flush() sends the outbox
+ *     until the Hub acknowledges each round id (retrying with back-off). The
+ *     Hub ignores ids it already has, so a retry can never duplicate a round.
+ *   - The service worker (/play-sw.js) keeps /play loadable offline.
+ * Every network promise ends in its own catch: an uncaught rejection would
+ * trigger recover() (section 11) and send a player back to attract mode.
+ * ------------------------------------------------------------------- */
+var Hub = {
+  status: { content: '', sync: '' },   // latest messages, shown in the admin panel
+  signedIn: null,                      // null = not known yet; true / false after the Hub answers
+  sending: false,
+
+  enabled: function () { return /^https?:$/.test(location.protocol); },
+
+  /* fetch to this same site (sign-in cookie included) with a timeout. Rejects on
+     network failure or timeout. Records whether this device is signed in. */
+  request: function (method, path, body, timeoutMs, headers) {
+    var self = this, ctrl = window.AbortController ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, timeoutMs);
+    var h = Object.assign({}, headers || {});
+    if (body !== undefined) h['Content-Type'] = 'application/json';
+    return fetch(path, { method: method, headers: h, body: body === undefined ? undefined : JSON.stringify(body),
+      signal: ctrl ? ctrl.signal : undefined, cache: 'no-store', credentials: 'same-origin' })
+      .then(function (res) {
+        clearTimeout(timer);
+        if (res.status === 401) self.signedIn = false; else if (res.ok || res.status === 304) self.signedIn = true;
+        return res;
+      }, function (e) { clearTimeout(timer); throw e; });
+  },
+
+  /* Content in the game's own shape; must contain at least one playable domain. */
+  usable: function (c) {
+    if (!c || !Array.isArray(c.domains) || !Array.isArray(c.questions)) return false;
+    var count = {};
+    c.domains.forEach(function (d) {
+      if (d && typeof d.id === 'string' && typeof d.name === 'string' && /^#[0-9A-Fa-f]{6}$/.test(d.accent) && ICONS[d.icon]) count[d.id] = 0;
+    });
+    var ok = c.questions.every(function (q) {
+      return q && typeof q.id === 'string' && count.hasOwnProperty(q.domainId) && typeof q.questionText === 'string' &&
+        Array.isArray(q.options) && q.options.length >= 4 && q.options.length <= 5 &&
+        q.correctIndex >= 0 && q.correctIndex < q.options.length && [1, 2, 3].indexOf(q.difficulty) >= 0;
+    });
+    if (!ok || Object.keys(count).length !== c.domains.length) return false;
+    c.questions.forEach(function (q) { count[q.domainId]++; });
+    return Object.keys(count).some(function (k) { return count[k] > 0; });
+  },
+
+  refreshContent: function () {
+    var self = this, s = Store.settings;
+    if (!self.enabled()) return Promise.resolve(false);
+    return self.request('GET', '/api/game/content', undefined, 10000, s.contentEtag ? { 'If-None-Match': s.contentEtag } : null)
+      .then(function (res) {
+        if (res.status === 304) { s.lastContentAt = Date.now(); Store.save('settings'); self.status.content = 'up to date'; return false; }
+        if (res.status === 401) { self.status.content = 'not signed in: using the saved questions'; return false; }
+        if (!res.ok) { self.status.content = 'Hub error ' + res.status; return false; }
+        var etag = res.headers.get('ETag') || '';
+        return res.json().then(function (c) {
+          if (!self.usable(c)) { self.status.content = 'Hub has no playable questions yet: keeping the current ones'; return false; }
+          Store.data.domains = c.domains; Store.data.questions = c.questions;
+          s.contentEtag = etag; s.contentVersion = c.version || ''; s.lastContentAt = Date.now();
+          self.status.content = 'updated';
+          return Store.saveMany(['domains', 'questions', 'settings']).then(function () { return true; });
+        });
+      })
+      .catch(function () { self.status.content = 'offline: using the saved questions'; return false; });
+  },
+
+  /* {found, firstName} or null (offline, slow, refused, or not connected). */
+  lookup: function (badge) {
+    if (!this.enabled()) return Promise.resolve(null);
+    return this.request('POST', '/api/game/lookup', { badgeId: badge }, 3000)
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (r) { return r && typeof r.found === 'boolean' ? r : null; })
+      .catch(function () { return null; });
+  },
+
+  /* Called by Round.end. The outbox entry is always written, even when not signed in,
+     so rounds played before signing in are sent once the device is signed in. */
+  roundFinished: function (round) {
+    var self = this;
+    var plays = Store.data.plays.filter(function (p) { return p.roundId === round.roundId; })
+      .map(function (p) { return { ts: p.ts, questionId: p.questionId, result: p.result, msToSlice: p.msToSlice }; });
+    Store.data.outbox.push({ round: JSON.parse(JSON.stringify(round)), plays: plays, attempts: 0, nextAt: 0, rejected: '' });
+    Store.saveMany(['rounds', 'plays', 'outbox']).then(function () { self.flush(); });
+  },
+
+  /* Send due outbox entries (20 at a time) until each is acknowledged. */
+  flush: function () {
+    var self = this;
+    if (self.sending || !self.enabled()) return Promise.resolve();
+    var due = Store.data.outbox.filter(function (it) { return !it.rejected && it.nextAt <= Date.now(); }).slice(0, 20);
+    if (!due.length) return Promise.resolve();
+    self.sending = true;
+    return self.request('POST', '/api/game/rounds', { items: due.map(function (it) { return { round: it.round, plays: it.plays }; }) }, 15000)
+      .then(function (res) {
+        if (!res.ok) { self.status.sync = res.status === 401 ? 'not signed in: results are kept on this device' : 'Hub error ' + res.status; self.backoff(due); return; }
+        return res.json().then(function (r) {
+          var acked = {}, refused = {};
+          (r.acked || []).forEach(function (id) { acked[id] = true; });
+          (r.rejected || []).forEach(function (x) { refused[x.roundId] = String(x.reason || 'refused').slice(0, 200); });
+          Store.data.outbox = Store.data.outbox.filter(function (it) { return !acked[it.round.roundId]; });
+          Store.data.outbox.forEach(function (it) { if (refused[it.round.roundId]) it.rejected = refused[it.round.roundId]; });
+          // anything sent but neither acknowledged nor refused is retried later
+          self.backoff(due.filter(function (it) { return !acked[it.round.roundId] && !refused[it.round.roundId]; }));
+          Store.settings.lastSyncAt = Date.now(); self.status.sync = 'OK';
+          return Store.saveMany(['outbox', 'settings']);
+        });
+      })
+      .catch(function () { self.status.sync = 'offline: results are saved and will be sent later'; self.backoff(due); })
+      .then(function () {
+        self.sending = false;
+        if (Store.data.outbox.some(function (it) { return !it.rejected && it.nextAt <= Date.now(); })) setTimeout(function () { self.flush(); }, 300);
+      });
+  },
+  backoff: function (items) {
+    if (!items.length) return;
+    items.forEach(function (it) { it.attempts++; it.nextAt = Date.now() + Math.min(300000, 5000 * Math.pow(2, Math.min(it.attempts - 1, 6))); });
+    Store.save('outbox');
+  },
+
+  start: function () {
+    var self = this;
+    // A fresh page load (e.g. straight after signing in) retries everything waiting, without back-off.
+    Store.data.outbox.forEach(function (it) { it.nextAt = 0; });
+    self.refreshContent(); self.flush();
+    setInterval(function () { self.refreshContent(); }, 5 * 60000);
+    setInterval(function () { self.flush(); }, 30000);
+    window.addEventListener('online', function () {
+      Store.data.outbox.forEach(function (it) { it.nextAt = 0; });   // back online: send now, not after the back-off
+      self.refreshContent(); self.flush();
+    });
+  },
+
+  /* Offline support for /play (Hub mode only). */
+  registerWorker: function () {
+    if (!('serviceWorker' in navigator) || !/^https?:$/.test(location.protocol) || location.pathname !== '/play') return;
+    navigator.serviceWorker.register('/play-sw.js', { scope: '/play' }).catch(function () {});
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
+  }
+};
+
+/* Exposed for debugging in the browser console (and the Hub's automated tests) only */
+window.PharmaNinja = { Store: Store, Round: Round, Leaderboard: Leaderboard, Hub: Hub, Screens: Screens, NameEntry: NameEntry, Admin: Admin,
+  get Stage() { return Stage; } };
 
 Boot.start();
 })();

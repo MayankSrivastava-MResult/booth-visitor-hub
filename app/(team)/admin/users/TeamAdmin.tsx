@@ -3,10 +3,13 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { callApi } from '@/components/api';
 import type { TeamMember } from '@/lib/data/team';
+import type { Role } from '@/lib/session';
+
+const ROLE_LABEL: Record<Role, string> = { admin: 'Admin', staff: 'Staff', game: 'Game screen' };
 
 export default function TeamAdmin({ team, meId }: { team: TeamMember[]; meId: string }) {
   const router = useRouter();
-  const [form, setForm] = useState({ email: '', displayName: '', role: 'staff' as 'staff' | 'admin', password: '' });
+  const [form, setForm] = useState({ email: '', displayName: '', role: 'staff' as Role, password: '' });
   const [fields, setFields] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -48,14 +51,20 @@ export default function TeamAdmin({ team, meId }: { team: TeamMember[]; meId: st
           {team.map((m) => (
             <div key={m.id} className="spread">
               <span className="stack" style={{ gap: 0 }}>
-                <span className="item-title">{m.displayName} {!m.active && <span className="pill">removed</span>} {m.role === 'admin' && <span className="pill dark">admin</span>}</span>
+                <span className="item-title">{m.displayName} {!m.active && <span className="pill">removed</span>} {m.role !== 'staff' && <span className="pill dark">{ROLE_LABEL[m.role]}</span>}</span>
                 <span className="small muted">{m.email}</span>
               </span>
               {m.id === meId ? <span className="small muted">You</span> : (
                 <span className="row">
                   {m.active ? <>
-                    <button className="btn small ghost" onClick={() => patch(m.id, { role: m.role === 'admin' ? 'staff' : 'admin' }, `${m.displayName} is now ${m.role === 'admin' ? 'staff' : 'an admin'}.`)}>
-                      Make {m.role === 'admin' ? 'staff' : 'admin'}</button>
+                    <select value={m.role} aria-label={`Role for ${m.displayName}`} style={{ width: 'auto', minHeight: 40, padding: '6px 10px', fontSize: 15 }}
+                      onChange={(e) => {
+                        const role = e.target.value as Role;
+                        if (window.confirm(`Change ${m.displayName} to ${ROLE_LABEL[role]}? They will be signed out.`)) patch(m.id, { role }, `${m.displayName} is now ${ROLE_LABEL[role]}.`);
+                        else e.target.value = m.role;
+                      }}>
+                      {(Object.keys(ROLE_LABEL) as Role[]).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+                    </select>
                     <button className="btn small ghost" onClick={() => resetPassword(m)}>Reset password</button>
                     <button className="btn small ghost" onClick={() => window.confirm(`Remove ${m.displayName}? They will be signed out at once.`) && patch(m.id, { active: false }, `${m.displayName} removed.`)}>Remove</button>
                   </> : <button className="btn small ghost" onClick={() => resetPassword(m, true)}>Restore with new password</button>}
@@ -72,8 +81,11 @@ export default function TeamAdmin({ team, meId }: { team: TeamMember[]; meId: st
         <label className="field">Name
           <input type="text" value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} />{err('displayName')}</label>
         <label className="field">Role
-          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as 'staff' | 'admin' })}>
-            <option value="staff">Staff</option><option value="admin">Admin</option></select></label>
+          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as Role })}>
+            <option value="staff">Staff</option><option value="admin">Admin</option>
+            <option value="game">Game screen (can only run Pharma Ninja)</option></select>
+          {form.role === 'game' && <span className="hint">For public game screens. Sign in with it on any laptop or iPad and the game opens.
+            It can never see visitor details. One game account can run several screens at once.</span>}</label>
         <label className="field">Password <span className="opt">(at least 10 characters; you give it to them)</span>
           <input type="text" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="new-password" autoCapitalize="off" spellCheck={false} />{err('password')}</label>
         <button className="btn" type="submit" disabled={busy}>{busy ? 'Adding…' : 'Add person'}</button>

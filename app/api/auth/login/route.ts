@@ -1,5 +1,6 @@
 /* POST /api/auth/login  {email, password}
- * 200 {ok:true} and sets the session cookie | 401 {error} | 429
+ * 200 {ok:true, next:'/' | '/play'} and sets the session cookie | 401 {error} | 429
+ * (game screen accounts are sent straight to the game).
  * The same message is shown for an unknown email and a wrong password, so the
  * login page never reveals who is on the team list. */
 import type { NextRequest } from 'next/server';
@@ -8,7 +9,7 @@ import { rawSql } from '@/lib/db';
 import { checkSameOrigin, error, ipHash, json, readJson } from '@/lib/http';
 import { verifyPassword } from '@/lib/password';
 import { allow, LIMITS } from '@/lib/ratelimit';
-import { createSession, SESSION_COOKIE, sessionCookieOptions } from '@/lib/session';
+import { createSession, homeFor, SESSION_COOKIE, sessionCookieOptions, userForToken } from '@/lib/session';
 
 const Body = z.object({ email: z.string().trim().toLowerCase().max(254), password: z.string().max(200) });
 const NOT_OK = 'Email or password is not right. If you are not on the team list, ask the MResult admin to add you.';
@@ -30,7 +31,8 @@ export async function POST(req: NextRequest) {
   if (!user || !user.active || !valid) return error(401, NOT_OK);
 
   const token = await createSession(user.id);
-  const res = json({ ok: true });
+  const me = await userForToken(token);
+  const res = json({ ok: true, next: homeFor(me?.role ?? 'staff') });
   res.cookies.set(SESSION_COOKIE, token, sessionCookieOptions());
   return res;
 }

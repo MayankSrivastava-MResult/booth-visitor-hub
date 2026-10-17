@@ -11,8 +11,8 @@ export default function LoginForm() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true); setMsg('');
-    const res = await callApi('/api/auth/login', 'POST', { email, password });
-    if (res.ok) { window.location.href = '/'; return; }
+    const res = await callApi<{ next?: string }>('/api/auth/login', 'POST', { email, password });
+    if (res.ok) { window.location.href = res.data.next === '/play' ? '/play' : '/'; return; }
     setBusy(false);
     setMsg(res.data.error ?? 'Could not sign in.');
   }
@@ -28,7 +28,8 @@ export default function LoginForm() {
       </label>
       {msg && <p className="notice bad" role="alert">{msg}</p>}
       <button className="btn block" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
-      <p className="hint">You stay signed in on this phone for 7 days. Forgot your password? Ask the MResult admin to reset it.</p>
+      <p className="hint">You stay signed in on this device for 7 days. Game screens: sign in with the game account and the game opens.
+        Forgot your password? Ask the MResult admin to reset it.</p>
     </form>
   );
 }

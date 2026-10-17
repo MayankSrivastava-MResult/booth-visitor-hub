@@ -1,13 +1,13 @@
 /* Proves role enforcement at the database level: what each role
- * (hub_api, hub_public, hub_device, hub_user as staff / admin / removed)
+ * (hub_api, hub_public, hub_game, hub_user as staff / admin / game account / removed)
  * can and cannot do, using the real migrations and the app's own db helpers. */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import postgres from 'postgres';
-import { asDevice, asPublic, asUser, pgCode, rawSql } from '@/lib/db';
+import { asGame, asPublic, asUser, pgCode, rawSql } from '@/lib/db';
 import { createSession, userForToken } from '@/lib/session';
 
 const owner = postgres(process.env.TEST_OWNER_URL!, { max: 1, onnotice: () => {} });
-const ids: Record<'admin' | 'staff1' | 'staff2' | 'removed', string> = {} as never;
+const ids: Record<'admin' | 'staff1' | 'staff2' | 'removed' | 'game', string> = {} as never;
 const as = (k: keyof typeof ids) => ({ id: ids[k] });
 
 async function denied(p: Promise<unknown>) {
@@ -23,9 +23,9 @@ const reg = (badgeId: string) => ({
 
 beforeAll(async () => {
   [{ consentVersion }] = await owner`select consent_version as "consentVersion" from hub.settings`;
-  for (const [k, role, active] of [['staff1', 'staff', true], ['staff2', 'staff', true], ['removed', 'staff', false]] as const) {
+  for (const [k, role, active] of [['staff1', 'staff', true], ['staff2', 'staff', true], ['removed', 'staff', false], ['game', 'game', true]] as const) {
     const [r] = await owner`insert into hub.app_users (email, display_name, role, active, password_hash)
-                            values (${k + '@mresult.com'}, ${k}, ${role}, ${active}, 'x') returning id`;
+                            values (${k + '.policy@mresult.com'}, ${k}, ${role}, ${active}, 'x') returning id`;
     ids[k] = r.id;
   }
   const [a] = await owner`select id from hub.app_users where email = 'mayank.srivastava@mresult.com'`;
@@ -64,47 +64,47 @@ describe('hub_public (registration form)', () => {
   });
 });
 
-describe('hub_device (game devices)', () => {
+describe('hub_game (Pharma Ninja sync calls, any signed-in account)', () => {
   it('cannot read visitors, interactions, team or rounds', async () => {
-    for (const t of ['visitors', 'interactions', 'app_users', 'game_rounds', 'questions', 'device_keys']) {
-      expect(await denied(asDevice((tx) => tx.unsafe(`select * from hub.${t}`)))).toBe(true);
+    for (const t of ['visitors', 'interactions', 'app_users', 'game_rounds', 'questions', 'sessions']) {
+      expect(await denied(asGame((tx) => tx.unsafe(`select * from hub.${t}`)))).toBe(true);
     }
   });
   it('badge lookup returns only found + first name (honorific skipped)', async () => {
-    const rows = await asDevice((tx) => tx`select * from hub.device_lookup(' pub-001')`);
+    const rows = await asGame((tx) => tx`select * from hub.game_lookup(' pub-001')`);
     expect(rows).toEqual([{ found: true, first_name: 'Asha' }]);
-    const none = await asDevice((tx) => tx`select * from hub.device_lookup('NOPE-1')`);
+    const none = await asGame((tx) => tx`select * from hub.game_lookup('NOPE-1')`);
     expect(none).toEqual([{ found: false, first_name: null }]);
   });
-  it('gets the 8 seeded domains and 45 questions in the game shape', async () => {
-    const [{ c }] = await asDevice((tx) => tx`select hub.device_content() as c`);
-    expect(c.domains).toHaveLength(8);
-    expect(c.questions).toHaveLength(45);
+  it('gets every enabled domain and question, in the game shape and the seeded order', async () => {
+    // Counts come from the database itself: other test files may have changed content already.
+    const [{ d, q }] = await owner`select (select count(*)::int from hub.domains where enabled) as d,
+      (select count(*)::int from hub.questions q join hub.domains dm on dm.id = q.domain_id where q.enabled and dm.enabled) as q`;
+    const [{ c }] = await asGame((tx) => tx`select hub.game_content() as c`);
+    expect(c.domains).toHaveLength(d);
+    expect(c.questions).toHaveLength(q);
     expect(Object.keys(c.domains[0]).sort()).toEqual(['accent', 'desc', 'enabled', 'icon', 'id', 'name']);
-    expect(c.domains.map((d: { id: string }) => d.id)).toEqual(['clinical', 'quality', 'mfg', 'rnd', 'genai', 'data', 'business', 'india']);
+    expect(c.domains.map((x: { id: string }) => x.id).slice(0, 8)).toEqual(['clinical', 'quality', 'mfg', 'rnd', 'genai', 'data', 'business', 'india']);
   });
   it('ingests a round exactly once, even when re-sent', async () => {
-    const [dev] = await owner`insert into hub.device_keys (label, key_hash, key_prefix, created_by)
-                              values ('test', '\\x01', 'pnk_t', ${ids.admin}) returning id`;
     const item = { round: { roundId: 'r1abcdef', ts: Date.now(), date: '2026-11-02', displayName: 'Asha', visitorId: 'pub-001',
       badgeConfirmed: true, domainId: 'clinical', score: 180, questions: 2, correct: 2, longestStreak: 2, endReason: 'time' },
       plays: [{ ts: Date.now(), questionId: 'ct-03', result: 'correct', msToSlice: 1200 },
               { ts: Date.now(), questionId: 'ct-06', result: 'missed', msToSlice: '' }] };
     for (let i = 0; i < 3; i++) {
-      const [{ r }] = await asDevice((tx) => tx`select hub.device_ingest(${dev.id}::uuid, ${tx.json([item])}) as r`);
+      const [{ r }] = await asGame((tx) => tx`select hub.game_ingest(${ids.game}::uuid, ${tx.json([item])}) as r`);
       expect(r).toEqual({ acked: ['r1abcdef'], rejected: [] });
     }
     const [{ n }] = await owner`select count(*)::int as n from hub.game_plays where round_id = 'r1abcdef'`;
     expect(n).toBe(2);
-    const [round] = await owner`select badge_id, badge_confirmed from hub.game_rounds where round_id = 'r1abcdef'`;
-    expect(round).toEqual({ badge_id: 'PUB-001', badge_confirmed: true });
+    const [round] = await owner`select badge_id, badge_confirmed, created_by from hub.game_rounds where round_id = 'r1abcdef'`;
+    expect(round).toEqual({ badge_id: 'PUB-001', badge_confirmed: true, created_by: ids.game });   // records who sent it
   });
   it('rejects a malformed item without blocking the others', async () => {
-    const [dev] = await owner`select id from hub.device_keys limit 1`;
     const good = { round: { roundId: 'r2abcdef', ts: Date.now(), date: '2026-11-02', displayName: 'X', visitorId: '',
       domainId: 'quality', score: 0, questions: 0, correct: 0, longestStreak: 0, endReason: 'lives' }, plays: [] };
     const bad = { round: { ...good.round, roundId: 'r3abcdef', endReason: 'exploded' }, plays: [] };
-    const [{ r }] = await asDevice((tx) => tx`select hub.device_ingest(${dev.id}::uuid, ${tx.json([bad, good])}) as r`);
+    const [{ r }] = await asGame((tx) => tx`select hub.game_ingest(${ids.game}::uuid, ${tx.json([bad, good])}) as r`);
     expect(r.acked).toEqual(['r2abcdef']);
     expect(r.rejected[0].roundId).toBe('r3abcdef');
   });
@@ -146,15 +146,28 @@ describe('hub_user (signed-in team members)', () => {
     expect((await asUser(as('admin'), (tx) => tx`delete from hub.interactions where id = ${i.id} returning 1`))).toHaveLength(1);
   });
 
-  it('staff cannot see password hashes, manage the team, change settings, or see questions and device keys', async () => {
+  it('staff cannot see password hashes, manage the team, change settings, or see questions', async () => {
     expect(await denied(asUser(as('staff1'), (tx) => tx`select password_hash from hub.app_users`))).toBe(true);
     await expect(asUser(as('staff1'), (tx) => tx`insert into hub.app_users (email, display_name, role) values ('z@mresult.com', 'Z', 'admin')`))
       .rejects.toThrow(/row-level security/);
     expect(await asUser(as('staff1'), (tx) => tx`update hub.app_users set role = 'admin' where id = ${ids.staff1} returning 1`)).toHaveLength(0);
     expect(await asUser(as('staff1'), (tx) => tx`update hub.settings set demos = '{x}' returning 1`)).toHaveLength(0);
     expect(await asUser(as('staff1'), (tx) => tx`select id from hub.questions`)).toHaveLength(0);
-    expect(await denied(asUser(as('staff1'), (tx) => tx`select key_hash from hub.device_keys`))).toBe(true);
-    expect(await asUser(as('admin'), (tx) => tx`select id from hub.questions`)).toHaveLength(45);
+    const [{ n }] = await owner`select count(*)::int as n from hub.questions`;
+    expect(n).toBeGreaterThan(0);
+    expect(await asUser(as('admin'), (tx) => tx`select id from hub.questions`)).toHaveLength(n);
+  });
+
+  it('a game screen account can read and write nothing in the Hub', async () => {
+    expect(await asUser(as('game'), (tx) => tx`select badge_id from hub.visitors`)).toHaveLength(0);
+    expect(await asUser(as('game'), (tx) => tx`select id from hub.app_users`)).toHaveLength(0);
+    expect(await asUser(as('game'), (tx) => tx`select id from hub.interactions`)).toHaveLength(0);
+    expect(await asUser(as('game'), (tx) => tx`select round_id from hub.game_rounds`)).toHaveLength(0);
+    await expect(asUser(as('game'), (tx) => tx`insert into hub.interactions (badge_id, type, notes, created_by)
+      values ('STAFF-01', 'other', 'x', ${ids.game})`)).rejects.toThrow(/row-level security/);
+    await expect(asUser(as('game'), (tx) => tx`insert into hub.visitors (badge_id, full_name, company, job_title, email, consent_given,
+      consent_version, consent_at, registration_mode, created_by)
+      values ('GAME-X', 'X', 'Co', 'T', 'x@example.com', true, ${consentVersion}, now(), 'staff', ${ids.game})`)).rejects.toThrow(/row-level security/);
   });
 
   it('a removed person is treated as nobody', async () => {

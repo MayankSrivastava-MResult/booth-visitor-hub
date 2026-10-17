@@ -61,9 +61,9 @@ async function queries(tx: Tx, start: Date | null, end: Date | null) {
            case when g.badge_confirmed then 'yes' else 'no' end as badge_confirmed,
            case when g.badge_id is null then '' when v.badge_id is null then 'no' else 'yes' end as registered,
            v.full_name, coalesce(d.name, g.domain_id) as domain, g.score, g.questions, g.correct, g.longest_streak, g.end_reason,
-           dk.label as device, ${IST('g.received_at')} as synced_at
+           sb.display_name as sent_by, ${IST('g.received_at')} as synced_at
     from hub.game_rounds g left join hub.visitors v on v.badge_id = g.badge_id
-    left join hub.domains d on d.id = g.domain_id left join hub.device_keys dk on dk.id = g.device_key_id
+    left join hub.domains d on d.id = g.domain_id left join hub.app_users sb on sb.id = g.created_by
     where ${R('g.played_at')}
     order by g.played_at`);
 
@@ -119,7 +119,7 @@ export async function buildExport(admin: SessionUser, from?: string | null, to?:
   sheet('Game rounds', [c('Played at (IST)', 'played_at'), c('Round ID', 'round_id', 14), c('Display name', 'display_name'),
     c('Badge ID', 'badge_id', 14), c('Badge confirmed', 'badge_confirmed', 9), c('Registered', 'registered', 9), c('Visitor name', 'full_name', 22),
     c('Domain', 'domain', 22), c('Score', 'score', 9), c('Questions', 'questions', 9), c('Correct', 'correct', 9),
-    c('Longest streak', 'longest_streak', 9), c('End reason', 'end_reason', 10), c('Device', 'device'), c('Synced at (IST)', 'synced_at')], d.rounds);
+    c('Longest streak', 'longest_streak', 9), c('End reason', 'end_reason', 10), c('Sent by (account)', 'sent_by'), c('Synced at (IST)', 'synced_at')], d.rounds);
   sheet('Game plays', [c('Played at (IST)', 'played_at'), c('Round ID', 'round_id', 14), c('Display name', 'display_name'),
     c('Badge ID', 'badge_id', 14), c('Domain', 'domain', 22), c('Question no.', 'question_no', 9), c('Question ID', 'question_id', 12),
     c('Question', 'question_text', 50), c('Result', 'result', 10), c('ms to slice', 'ms_to_slice', 10), c('Round score', 'round_score', 10)], d.plays);

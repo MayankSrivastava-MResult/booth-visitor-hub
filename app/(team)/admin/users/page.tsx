@@ -13,8 +13,9 @@ export default async function UsersPage() {
   return (
     <main className="page">
       <h1>Team</h1>
-      <p className="muted">People on this list can sign in with their email and the password you set. Removing someone, changing their role
-        or resetting their password signs them out straight away.</p>
+      <p className="muted">People on this list can sign in with their email and the password you set, on as many devices as they like.
+        Removing someone, changing their role or resetting their password signs them out everywhere straight away.
+        A <b>Game screen</b> account (e.g. game@mresult.com) can only run Pharma Ninja: use it on public game screens.</p>
       <TeamAdmin team={team} meId={admin.id} />
     </main>
   );

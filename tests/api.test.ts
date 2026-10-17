@@ -206,12 +206,15 @@ describe('team management', () => {
 
 describe('Excel export', () => {
   it('produces every sheet with the visitor, touchpoints and an unmatched game badge', async () => {
-    const [dev] = await owner`insert into hub.device_keys (label, key_hash, key_prefix, created_by)
-      select 'Booth laptop', '\\x02', 'pnk_b', id from hub.app_users where email = ${ADMIN} returning id`;
-    await owner`select hub.device_ingest(${dev.id}::uuid, ${owner.json([
+    const [me] = await owner`select id from hub.app_users where email = ${ADMIN}`;
+    // own question, so this test does not depend on the seed still being there
+    await owner`insert into hub.questions (id, domain_id, question_text, options, correct_index, difficulty, source)
+      values ('exp-q1', 'clinical', 'What is the single EU portal for trial applications?', '{CTIS,EudraCT,IRIS,Other}', 0, 1, 'Real')
+      on conflict (id) do nothing`;
+    await owner`select hub.game_ingest(${me.id}::uuid, ${owner.json([
       { round: { roundId: 'exp00001', ts: Date.now(), date: '2026-11-02', displayName: 'Meera', visitorId: 'GPPS-1001', badgeConfirmed: true,
         domainId: 'clinical', score: 250, questions: 3, correct: 3, longestStreak: 3, endReason: 'time' },
-        plays: [{ ts: Date.now(), questionId: 'ct-03', result: 'correct', msToSlice: 900 }] },
+        plays: [{ ts: Date.now(), questionId: 'exp-q1', result: 'correct', msToSlice: 900 }] },
       { round: { roundId: 'exp00002', ts: Date.now(), date: '2026-11-02', displayName: 'Guest', visitorId: 'UNREG-9',
         domainId: 'genai', score: 40, questions: 2, correct: 1, longestStreak: 1, endReason: 'lives' }, plays: [] },
     ] as never)})`;
@@ -229,6 +232,13 @@ describe('Excel export', () => {
     expect(meera).toMatchObject({ Conversations: 1, Podcast: 1, 'Game rounds': 1, 'Best game score': 250, 'Latest interest': 'warm',
       'Latest next step': 'Call on Monday', 'Marketing opt-in': 'yes' });
     expect(wb.getWorksheet('Unmatched badge IDs')!.getRow(2).getCell(1).value).toBe('UNREG-9');
-    expect(wb.getWorksheet('Game plays')!.getRow(2).getCell(8).value).toMatch(/single EU portal/);
+    const plays = wb.getWorksheet('Game plays')!;
+    const mine = plays.getRows(2, plays.rowCount - 1)!.find((r) => r.getCell(2).value === 'exp00001')!;
+    expect(mine.getCell(7).value).toBe('exp-q1');
+    const rounds = wb.getWorksheet('Game rounds')!;
+    const sentBy = (rounds.getRow(1).values as string[]).indexOf('Sent by (account)');
+    const r1 = rounds.getRows(2, rounds.rowCount - 1)!.find((r) => r.getCell(2).value === 'exp00001')!;
+    expect(r1.getCell(sentBy).value).toBe('Mayank Srivastava');
+    expect(mine.getCell(8).value).toMatch(/single EU portal/);
   });
 });

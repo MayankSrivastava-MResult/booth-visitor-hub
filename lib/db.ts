@@ -6,7 +6,8 @@
  *
  *   asUser(user, fn)  signed-in team member (role hub_user + setting hub.user_id)
  *   asPublic(fn)      unauthenticated registration form (role hub_public)
- *   asDevice(fn)      Pharma Ninja device with a valid key (role hub_device)
+ *   asGame(fn)        Pharma Ninja, for a signed-in account (role hub_game: game
+ *                     content, badge first-name lookup and saving rounds ONLY)
  *
  * Calls that run as hub_api itself (sessions, rate limits) use rawSql().
  * prepare:false is required by Supabase's transaction pooler.
@@ -34,7 +35,7 @@ export function rawSql(): Sql {
   return globalForSql.__hubSql;
 }
 
-async function inRole<T>(role: 'hub_user' | 'hub_public' | 'hub_device', userId: string | null, fn: (tx: Tx) => Promise<T>): Promise<T> {
+async function inRole<T>(role: 'hub_user' | 'hub_public' | 'hub_game', userId: string | null, fn: (tx: Tx) => Promise<T>): Promise<T> {
   const result = await rawSql().begin(async (tx) => {
     if (userId) await tx`select set_config('hub.user_id', ${userId}, true)`;
     await tx.unsafe(`set local role ${role}`);
@@ -51,8 +52,8 @@ export function asPublic<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
   return inRole('hub_public', null, fn);
 }
 
-export function asDevice<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
-  return inRole('hub_device', null, fn);
+export function asGame<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+  return inRole('hub_game', null, fn);
 }
 
 /** Postgres error codes we translate into friendly API responses. */

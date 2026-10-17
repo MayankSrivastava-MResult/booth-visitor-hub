@@ -7,7 +7,10 @@
     "node": "22.x"
   },
   "scripts": {
+    "build:game": "python3 pharma-ninja-src/build.py --hub public",
+    "predev": "npm run build:game",
     "dev": "next dev",
+    "prebuild": "npm run build:game",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
@@ -20,6 +23,7 @@
   "dependencies": {
     "exceljs": "4.4.0",
     "next": "16.3.8",
+    "papaparse": "5.7.0",
     "postgres": "3.4.9",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -27,6 +31,7 @@
   },
   "devDependencies": {
     "@types/node": "22.20.5",
+    "@types/papaparse": "5.5.2",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "embedded-postgres": "17.10.0-beta.17",

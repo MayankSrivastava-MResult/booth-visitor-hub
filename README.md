@@ -12,8 +12,11 @@ Next.js (App Router, TypeScript) on Vercel; Postgres on Supabase (used as plain 
 |---|---|
 | `app/register` | **Public** registration form (QR code). |
 | `app/login` | Team sign-in (email + password). |
-| `app/(team)/…` | Signed-in pages: home, log interaction, visitors, staff-assisted registration, podcast list, admin (export, team, settings). |
+| `app/(team)/…` | Signed-in pages for admin and staff: home, log interaction, visitors, staff-assisted registration, podcast list, admin (export, game content, team, settings). |
 | `app/api/…` | JSON API. Each route file starts with a comment giving its request and response shapes. |
+| `app/api/game/…` | The API Pharma Ninja uses: content, badge lookup (first name only), round sync. Any signed-in account; this is ALL a **Game screen** account can reach. |
+| `/play` | Pharma Ninja, built from `pharma-ninja-src/` by `npm run build:game` (runs automatically before `dev` and `build`). |
+| `lib/questions.ts` | Game content rules (same as the game's `validate.js`) and the CSV layout. |
 | `components/` | Shared client components: registration form, interaction form. |
 | `lib/db.ts` | Database access. Every request runs as a low-privilege role, so row-level security applies. |
 | `lib/session.ts`, `lib/password.ts` | Sessions (httpOnly cookie → `hub.sessions`) and scrypt password hashing. |
@@ -22,12 +25,13 @@ Next.js (App Router, TypeScript) on Vercel; Postgres on Supabase (used as plain 
 | `db/migrations/` | Plain SQL: schema, roles/grants/RLS, functions, seed. Runs on any Postgres 16+. |
 | `scripts/` | `migrate.mjs`, `gen-seed.mjs` (seed from the game's `data.js`), `set-password.mjs`, `dev-db.mjs`. |
 | `tests/` | Database-policy and API tests against a real throwaway Postgres 17. |
-| `pharma-ninja-src/` | The game's source (see its own README). Integrated at `/play` in Milestone B. |
+| `pharma-ninja-src/` | The game's source (see its own README). Served at `/play`. |
 
 ## Security model (short)
 
+- Three kinds of account: **admin**, **staff**, and **game** (a public game screen: can only run Pharma Ninja).
 - The server connects as `hub_api`, which can do almost nothing itself. Each request switches to `hub_user` (signed-in
-  team member), `hub_public` (registration form) or `hub_device` (game device) inside a transaction.
+  admin/staff), `hub_public` (registration form) or `hub_game` (Pharma Ninja's sync calls) inside a transaction.
 - Row-level security on every table. Staff vs admin is read live from `hub.app_users`, so removing someone or changing
   their role works immediately. Those changes also delete the person's sessions.
 - The `hub` schema is not exposed through Supabase's Data API.

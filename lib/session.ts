@@ -15,7 +15,8 @@ import { rawSql } from './db';
 export const SESSION_COOKIE = 'hub_session';
 export const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 
-export type Role = 'admin' | 'staff';
+/** admin and staff use the Hub; 'game' accounts can only run Pharma Ninja (for public game screens). */
+export type Role = 'admin' | 'staff' | 'game';
 export type SessionUser = { id: string; email: string; displayName: string; role: Role };
 
 function tokenHash(token: string): Buffer {
@@ -58,10 +59,14 @@ export const currentUser = cache(async (): Promise<SessionUser | null> => {
   return userForToken(jar.get(SESSION_COOKIE)?.value);
 });
 
-/** For pages: send signed-out visitors to the login page. */
+/** Where a person lands after signing in: game accounts go straight to the game. */
+export const homeFor = (role: Role) => (role === 'game' ? '/play' : '/');
+
+/** For Hub pages: signed-out visitors go to the login page; game accounts go back to the game. */
 export async function requireUser(): Promise<SessionUser> {
   const user = await currentUser();
   if (!user) redirect('/login');
+  if (user.role === 'game') redirect('/play');
   return user;
 }
 

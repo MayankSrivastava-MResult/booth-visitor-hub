@@ -16,7 +16,8 @@ export default async function TeamLayout({ children }: { children: React.ReactNo
     { href: '/staff-register', label: 'Register visitor' },
     { href: '/podcast', label: 'Podcast' },
     ...(user.role === 'admin'
-      ? [{ href: '/admin/export', label: 'Export' }, { href: '/admin/users', label: 'Team' }, { href: '/admin/settings', label: 'Settings' }]
+      ? [{ href: '/admin/export', label: 'Export' }, { href: '/admin/game', label: 'Game content' },
+         { href: '/admin/users', label: 'Team' }, { href: '/admin/settings', label: 'Settings' }]
       : []),
   ];
   return (

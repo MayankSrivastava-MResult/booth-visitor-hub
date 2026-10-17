@@ -116,12 +116,12 @@ export type InteractionInput = z.infer<typeof interactionSchema>;
 export const newUserSchema = z.object({
   email: email.transform((v) => v.toLowerCase()),
   displayName: required('Name', 80),
-  role: z.enum(['admin', 'staff']),
+  role: z.enum(['admin', 'staff', 'game']),
   password: z.string().min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`).max(200),
 });
 export const editUserSchema = z.object({
   displayName: required('Name', 80).optional(),
-  role: z.enum(['admin', 'staff']).optional(),
+  role: z.enum(['admin', 'staff', 'game']).optional(),
   active: z.boolean().optional(),
   password: z.string().min(MIN_PASSWORD_LENGTH, `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`).max(200).optional(),
 });

@@ -6,9 +6,11 @@ export const LIMITS = {
   loginPerIp:        { windowSec: 15 * 60, max: 30 },
   loginPerEmail:     { windowSec: 15 * 60, max: 8 },
   registerPerIp:     { windowSec: 60,      max: 60 },   // generous: venue Wi-Fi may share one IP
-  lookupPerDevice:   { windowSec: 60,      max: 30 },
-  lookupPerDeviceDay:{ windowSec: 86400,   max: 600 },
-  lookupPerIp:       { windowSec: 60,      max: 60 },
+  // Badge lookups, per signed-in account (one game account may run several screens)
+  lookupPerAccount:    { windowSec: 60,    max: 60 },
+  lookupPerAccountDay: { windowSec: 86400, max: 1500 },
+  lookupPerIp:         { windowSec: 60,    max: 60 },
+  syncPerAccount:      { windowSec: 60,    max: 240 },  // round-sync requests per account
 } as const;
 
 /** Count one hit against a bucket. Returns true if it is within the limit. */

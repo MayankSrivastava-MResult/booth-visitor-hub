@@ -22,7 +22,7 @@ export default async function VisitorPage({ params }: { params: Promise<{ badge:
   const detail = await visitorDetail(user, badge);
   if (!detail) notFound();
   const { visitor: v, timeline } = detail;
-  const [team, settings, domainTags] = await Promise.all([listTeam(user, { activeOnly: true }), getSettings(user), domainTagOptions(user)]);
+  const [team, settings, domainTags] = await Promise.all([listTeam(user, { peopleOnly: true }), getSettings(user), domainTagOptions(user)]);
   const lists = { podcastTopics: settings.podcastTopics, demos: settings.demos, domainTags };
   const teamOpts = team.map((t) => ({ id: t.id, displayName: t.displayName }));
   const who = { badgeId: v.badgeId, fullName: v.fullName, company: v.company, jobTitle: v.jobTitle };

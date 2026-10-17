@@ -2,15 +2,17 @@
  * podcast topics, demo list). Admin-only writes are enforced here and by RLS. */
 import { asUser, pgCode, PG } from '../db';
 import { hashPassword } from '../password';
-import type { SessionUser } from '../session';
+import type { Role, SessionUser } from '../session';
 import type { RegistrationConfig } from '../validation';
 
-export type TeamMember = { id: string; email: string; displayName: string; role: 'admin' | 'staff'; active: boolean };
+export type TeamMember = { id: string; email: string; displayName: string; role: Role; active: boolean };
 
-export async function listTeam(user: SessionUser, { activeOnly = false } = {}): Promise<TeamMember[]> {
+/** Everyone on the list (Team page), or with peopleOnly: active admins and staff
+ *  (the "met by" / follow-up owner pickers; game screen accounts are not people). */
+export async function listTeam(user: SessionUser, { peopleOnly = false } = {}): Promise<TeamMember[]> {
   return asUser(user, (tx) => tx<TeamMember[]>`
     select id, email, display_name as "displayName", role, active from hub.app_users
-    where ${!activeOnly} or active
+    where ${!peopleOnly} or (active and role in ('admin', 'staff'))
     order by active desc, display_name`);
 }
 
@@ -18,7 +20,7 @@ export type AddUserResult = { ok: true; id: string } | { ok: false; reason: 'exi
 
 /** Add a person, or re-activate a removed person with the same email. */
 export async function addTeamMember(admin: SessionUser,
-  input: { email: string; displayName: string; role: 'admin' | 'staff'; password: string }): Promise<AddUserResult> {
+  input: { email: string; displayName: string; role: Role; password: string }): Promise<AddUserResult> {
   const hash = await hashPassword(input.password);
   return asUser(admin, async (tx) => {
     const [existing] = await tx<{ id: string; active: boolean }[]>`select id, active from hub.app_users where email = ${input.email}`;
@@ -45,7 +47,7 @@ export type EditUserResult = 'ok' | 'not_found' | 'self';
 /** Change name, role, active (remove/restore) or reset password. Ends that person's sessions
  *  when role, active or password changes (database trigger). Admins cannot demote or remove themselves. */
 export async function editTeamMember(admin: SessionUser, id: string,
-  input: { displayName?: string; role?: 'admin' | 'staff'; active?: boolean; password?: string }): Promise<EditUserResult> {
+  input: { displayName?: string; role?: Role; active?: boolean; password?: string }): Promise<EditUserResult> {
   if (id === admin.id && ((input.role && input.role !== 'admin') || input.active === false)) return 'self';
   // Only the fields sent are written. (The SET clause must not read password_hash:
   // the hub_user role is deliberately not allowed to read that column.)

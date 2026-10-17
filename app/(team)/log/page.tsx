@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: 'Log interaction' };
 export default async function LogPage({ searchParams }: { searchParams: Promise<{ badge?: string }> }) {
   const user = await requireUser();
   const sp = await searchParams;
-  const [team, settings, domainTags] = await Promise.all([listTeam(user, { activeOnly: true }), getSettings(user), domainTagOptions(user)]);
+  const [team, settings, domainTags] = await Promise.all([listTeam(user, { peopleOnly: true }), getSettings(user), domainTagOptions(user)]);
   return (
     <main className="page narrow">
       <h1>Log interaction</h1>

@@ -1,14 +1,15 @@
 /* Team sign-in page (email + password). Already signed in → home. */
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
-import { currentUser } from '@/lib/session';
+import { currentUser, homeFor } from '@/lib/session';
 import LoginForm from './LoginForm';
 
 export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Sign in' };
 
 export default async function LoginPage() {
-  if (await currentUser()) redirect('/');
+  const user = await currentUser();
+  if (user) redirect(homeFor(user.role));
   return (
     <>
       <header className="pub-head">
