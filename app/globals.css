@@ -140,6 +140,20 @@ dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; ma
 .done h2 { font-size: 30px; }
 .tick { width: 72px; height: 72px; border-radius: 50%; background: var(--orange); display: flex; align-items: center; justify-content: center; }
 
+/* ---- Registration QR poster ---- */
+.qr-poster { align-items: center; text-align: center; padding: 28px 20px; }
+.qr-poster h2 { font-size: 32px; }
+.qr-img { width: min(360px, 80vw); }
+.qr-img svg { width: 100%; height: auto; display: block; }
+@media print {
+  .topbar, .nav, .no-print { display: none !important; }
+  body { background: #fff; }
+  .page { padding: 0; }
+  .qr-poster { border: 0; }
+  .qr-img { width: 130mm; }
+  .qr-poster h2 { font-size: 40pt; }
+}
+
 @media (max-width: 480px) {
   .topbar .app { display: none; }          /* keep the header on one line on phones */
 }

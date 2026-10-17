@@ -12,6 +12,7 @@ export default async function Home() {
         <Link className="tile" href="/visitors"><b>Visitors</b><span>Search and open a visitor&rsquo;s timeline</span></Link>
         <Link className="tile" href="/staff-register"><b>Register visitor</b><span>For walk-ins and guests on the booth tablet</span></Link>
         <Link className="tile" href="/podcast"><b>Podcast guests</b><span>Today&rsquo;s guest list</span></Link>
+        <Link className="tile" href="/qr"><b>Registration QR</b><span>Print it, or show it for a visitor to scan</span></Link>
         {/* plain <a>: a full page load, so the game's offline service worker takes over */}
         <a className="tile" href="/play"><b>Play Pharma Ninja</b><span>Run the game on this device. On public screens, sign in with the game account instead.</span></a>
         {user.role === 'admin' && <>

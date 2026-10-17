@@ -1028,8 +1028,10 @@ var NameEntry = {
     });
   },
   open: function (player) {
-    this.name = player ? player.displayName : ''; this.field = 'name';
+    this.name = player ? player.displayName : '';
     this.vidLocked = !!this.urlVid; this.vid = this.urlVid || (player ? player.visitorId || '' : '');
+    // New player: start in the Badge ID field (shown first). Coming back to change the name: the name field.
+    this.field = (!player && !this.vidLocked) ? 'vid' : 'name';
     this.shift = !this.name; $('name-msg').textContent = '';
     Screens.show('name'); if (Stage) Stage.setMode('off'); Activity.ping(); this.paint();
     // Returning from the picker keeps a confirmed badge; otherwise look a prefilled badge up.

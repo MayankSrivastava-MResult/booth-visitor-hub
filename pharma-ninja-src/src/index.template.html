@@ -319,8 +319,9 @@ button:focus-visible { outline: 0.3rem solid var(--white); outline-offset: 0.3re
           </div>
         </div>
         <div class="fields">
-          <button class="field active" id="f-name"><label>Display name</label><div class="val" id="v-name"></div></button>
-          <button class="field small" id="f-vid"><label>Badge ID (optional)</label><div class="val" id="v-vid"></div></button>
+          <!-- Badge first: confirming it fills in the display name. (The badge is still optional to play.) -->
+          <button class="field small active" id="f-vid"><label>Badge ID</label><div class="val" id="v-vid"></div></button>
+          <button class="field" id="f-name"><label>Display name</label><div class="val" id="v-name"></div></button>
         </div>
         <div class="name-msg" id="name-msg"></div>
         <div class="kb" id="kb"></div>
