@@ -41,13 +41,13 @@ rules, or if the game's code contains any absolute web address (the game only ta
 Open the Hub on any device and sign in. A **Game screen** account goes straight to `/play`; admin and staff can use
 "Play Pharma Ninja" on the Hub home page.
 
-**Badge ID is required to play.** Once the typed badge matches the Badge ID rule from the Hub's Settings and typing pauses, the game checks it with the Hub by itself ("Choose domain" also checks it, if tapped first). There are no suggestions while typing, so other visitors' badge IDs and names can't be browsed:
+**Email is required to play.** The keyboard has **@** and **.com** keys. Once the typed email looks complete and typing pauses, the game checks it with the Hub by itself ("Choose domain" also checks it, if tapped first). There are no suggestions while typing, so other visitors' emails and names can't be browsed:
 - **Registered:** "Welcome, <first name> — is this you?". Yes fills in the display name.
-- **Not registered:** "<badge> isn't registered yet" with **Register now** and **Fix my badge ID**. Register now opens
-  the Hub's registration form (`/register?kiosk=1`) over the game, with the badge filled in. The game page stays open, so the music keeps playing. Saving brings the player straight back with their
-  first name as the display name and the badge confirmed. Autofill is off on that form, so the next visitor never
+- **Not registered:** "This email isn't registered yet" with **Register now** and **Fix my email**. Register now opens
+  the Hub's registration form (`/register?kiosk=1`) over the game, with the email filled in. The game page stays open, so the music keeps playing. Saving brings the player straight back with their
+  first name as the display name and the email confirmed. Autofill is off on that form, so the next visitor never
   sees the previous visitor's details.
-- **Hub unreachable, or the screen not signed in:** the player plays anyway and the badge is kept unconfirmed,
+- **Hub unreachable, or the screen not signed in:** the player plays anyway and the email is kept unconfirmed,
   because the game never blocks on the network.
 
 New builds reach a running screen automatically. It checks every 5 minutes and reloads itself while idle on the
@@ -55,7 +55,7 @@ attract screen, never mid-round or mid-form.
 
 The game uses the sign-in to:
 - fetches enabled domains and questions at start and every 5 minutes, keeping them for offline use;
-- looks up a typed badge ID and asks "Welcome, <first name> — is this you?";
+- looks up a typed email and asks "Welcome, <first name> — is this you?";
 - saves every finished round and its plays locally first, then sends them to the Hub until each is acknowledged.
   The Hub ignores round ids it already has, so nothing is ever counted twice.
 

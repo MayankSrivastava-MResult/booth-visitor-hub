@@ -16,8 +16,8 @@ async function denied(p: Promise<unknown>) {
 }
 
 let consentVersion = 1;   // other test files may have published a newer notice
-const reg = (badgeId: string) => ({
-  badgeId, fullName: 'Dr. Asha Rao', company: 'Example Pharma', jobTitle: 'Head of Clinical Ops', email: 'asha@example.com',
+const reg = (email: string) => ({
+  email, fullName: 'Dr. Asha Rao', company: 'Example Pharma', jobTitle: 'Head of Clinical Ops',
   mobile: null, linkedinUrl: null, consent: true, marketingOptIn: false, consentVersion,
 });
 
@@ -44,22 +44,22 @@ describe('hub_api (the server login) on its own', () => {
 describe('hub_public (registration form)', () => {
   it('has no table access at all', async () => {
     expect(await denied(asPublic((tx) => tx`select * from hub.visitors`))).toBe(true);
-    expect(await denied(asPublic((tx) => tx`insert into hub.visitors (badge_id) values ('X')`))).toBe(true);
+    expect(await denied(asPublic((tx) => tx`insert into hub.visitors (email) values ('x@example.com')`))).toBe(true);
     expect(await denied(asPublic((tx) => tx`select * from hub.app_users`))).toBe(true);
   });
   it('registers once, then reports "exists" without overwriting', async () => {
-    const r1 = await asPublic((tx) => tx`select hub.register_visitor_public(${tx.json(reg(' pub-001 '))}) as r`);
+    const r1 = await asPublic((tx) => tx`select hub.register_visitor_public(${tx.json(reg(' Pub-001@Example.com '))}) as r`);
     expect(r1[0].r).toBe('created');
-    const changed = { ...reg('PUB-001'), fullName: 'Someone Else' };
+    const changed = { ...reg('pub-001@example.com'), fullName: 'Someone Else' };
     const r2 = await asPublic((tx) => tx`select hub.register_visitor_public(${tx.json(changed)}) as r`);
     expect(r2[0].r).toBe('exists');
-    const [v] = await owner`select full_name, created_by, registration_mode from hub.visitors where badge_id = 'PUB-001'`;
+    const [v] = await owner`select full_name, created_by, registration_mode from hub.visitors where email = 'pub-001@example.com'`;
     expect(v).toEqual({ full_name: 'Dr. Asha Rao', created_by: null, registration_mode: 'self' });
   });
-  it('rejects badge IDs that break the format rule and stale consent versions', async () => {
-    const bad = await asPublic((tx) => tx`select hub.register_visitor_public(${tx.json(reg('ab'))}) as r`);
-    expect(bad[0].r).toBe('invalid_badge');
-    const stale = await asPublic((tx) => tx`select hub.register_visitor_public(${tx.json({ ...reg('PUB-777'), consentVersion: 99 })}) as r`);
+  it('rejects something that is not an email, and stale consent versions', async () => {
+    const bad = await asPublic((tx) => tx`select hub.register_visitor_public(${tx.json(reg('not-an-email'))}) as r`);
+    expect(bad[0].r).toBe('invalid_email');
+    const stale = await asPublic((tx) => tx`select hub.register_visitor_public(${tx.json({ ...reg('pub-777@example.com'), consentVersion: 99 })}) as r`);
     expect(stale[0].r).toBe('stale_consent');
   });
 });
@@ -70,10 +70,10 @@ describe('hub_game (Pharma Ninja sync calls, any signed-in account)', () => {
       expect(await denied(asGame((tx) => tx.unsafe(`select * from hub.${t}`)))).toBe(true);
     }
   });
-  it('badge lookup returns only found + first name (honorific skipped)', async () => {
-    const rows = await asGame((tx) => tx`select * from hub.game_lookup(' pub-001')`);
+  it('email lookup returns only found + first name (honorific skipped)', async () => {
+    const rows = await asGame((tx) => tx`select * from hub.game_lookup(' PUB-001@example.com')`);
     expect(rows).toEqual([{ found: true, first_name: 'Asha' }]);
-    const none = await asGame((tx) => tx`select * from hub.game_lookup('NOPE-1')`);
+    const none = await asGame((tx) => tx`select * from hub.game_lookup('nope@example.com')`);
     expect(none).toEqual([{ found: false, first_name: null }]);
   });
   it('gets every enabled domain and question, in the game shape and the seeded order', async () => {
@@ -87,8 +87,8 @@ describe('hub_game (Pharma Ninja sync calls, any signed-in account)', () => {
     expect(c.domains.map((x: { id: string }) => x.id).slice(0, 8)).toEqual(['clinical', 'quality', 'mfg', 'rnd', 'genai', 'data', 'business', 'india']);
   });
   it('ingests a round exactly once, even when re-sent', async () => {
-    const item = { round: { roundId: 'r1abcdef', ts: Date.now(), date: '2026-11-02', displayName: 'Asha', visitorId: 'pub-001',
-      badgeConfirmed: true, domainId: 'clinical', score: 180, questions: 2, correct: 2, longestStreak: 2, endReason: 'time' },
+    const item = { round: { roundId: 'r1abcdef', ts: Date.now(), date: '2026-11-02', displayName: 'Asha', email: 'Pub-001@example.com',
+      emailConfirmed: true, domainId: 'clinical', score: 180, questions: 2, correct: 2, longestStreak: 2, endReason: 'time' },
       plays: [{ ts: Date.now(), questionId: 'ct-03', result: 'correct', msToSlice: 1200 },
               { ts: Date.now(), questionId: 'ct-06', result: 'missed', msToSlice: '' }] };
     for (let i = 0; i < 3; i++) {
@@ -97,11 +97,11 @@ describe('hub_game (Pharma Ninja sync calls, any signed-in account)', () => {
     }
     const [{ n }] = await owner`select count(*)::int as n from hub.game_plays where round_id = 'r1abcdef'`;
     expect(n).toBe(2);
-    const [round] = await owner`select badge_id, badge_confirmed, created_by from hub.game_rounds where round_id = 'r1abcdef'`;
-    expect(round).toEqual({ badge_id: 'PUB-001', badge_confirmed: true, created_by: ids.game });   // records who sent it
+    const [round] = await owner`select player_email, email_confirmed, created_by from hub.game_rounds where round_id = 'r1abcdef'`;
+    expect(round).toEqual({ player_email: 'pub-001@example.com', email_confirmed: true, created_by: ids.game });   // records who sent it
   });
   it('rejects a malformed item without blocking the others', async () => {
-    const good = { round: { roundId: 'r2abcdef', ts: Date.now(), date: '2026-11-02', displayName: 'X', visitorId: '',
+    const good = { round: { roundId: 'r2abcdef', ts: Date.now(), date: '2026-11-02', displayName: 'X', email: '',
       domainId: 'quality', score: 0, questions: 0, correct: 0, longestStreak: 0, endReason: 'lives' }, plays: [] };
     const bad = { round: { ...good.round, roundId: 'r3abcdef', endReason: 'exploded' }, plays: [] };
     const [{ r }] = await asGame((tx) => tx`select hub.game_ingest(${ids.game}::uuid, ${tx.json([bad, good])}) as r`);
@@ -117,32 +117,32 @@ describe('hub_user (signed-in team members)', () => {
   });
 
   it('staff can read visitors and register as themselves, but not as someone else', async () => {
-    expect((await asUser(as('staff1'), (tx) => tx`select badge_id from hub.visitors`)).length).toBeGreaterThan(0);
-    await asUser(as('staff1'), (tx) => tx`insert into hub.visitors (badge_id, full_name, company, job_title, email, consent_given,
+    expect((await asUser(as('staff1'), (tx) => tx`select email from hub.visitors`)).length).toBeGreaterThan(0);
+    await asUser(as('staff1'), (tx) => tx`insert into hub.visitors (full_name, company, job_title, email, consent_given,
       consent_version, consent_at, registration_mode, created_by)
-      values ('STAFF-01', 'Ravi Kumar', 'Co', 'Lead', 'r@example.com', true, 1, now(), 'staff', ${ids.staff1})`);
-    await expect(asUser(as('staff1'), (tx) => tx`insert into hub.visitors (badge_id, full_name, company, job_title, email, consent_given,
+      values ('Ravi Kumar', 'Co', 'Lead', 'staff-01@example.com', true, 1, now(), 'staff', ${ids.staff1})`);
+    await expect(asUser(as('staff1'), (tx) => tx`insert into hub.visitors (full_name, company, job_title, email, consent_given,
       consent_version, consent_at, registration_mode, created_by)
-      values ('STAFF-02', 'X', 'Co', 'Lead', 'x@example.com', true, 1, now(), 'staff', ${ids.staff2})`)).rejects.toThrow(/row-level security/);
+      values ('X', 'Co', 'Lead', 'staff-02@example.com', true, 1, now(), 'staff', ${ids.staff2})`)).rejects.toThrow(/row-level security/);
   });
 
   it('staff cannot edit or delete visitors; admin can', async () => {
-    const upd = await asUser(as('staff1'), (tx) => tx`update hub.visitors set company = 'Hacked' where badge_id = 'STAFF-01' returning 1`);
+    const upd = await asUser(as('staff1'), (tx) => tx`update hub.visitors set company = 'Hacked' where email = 'staff-01@example.com' returning 1`);
     expect(upd).toHaveLength(0);
-    const del = await asUser(as('staff1'), (tx) => tx`delete from hub.visitors where badge_id = 'STAFF-01' returning 1`);
+    const del = await asUser(as('staff1'), (tx) => tx`delete from hub.visitors where email = 'staff-01@example.com' returning 1`);
     expect(del).toHaveLength(0);
-    const ok = await asUser(as('admin'), (tx) => tx`update hub.visitors set company = 'Fixed Co' where badge_id = 'STAFF-01' returning 1`);
+    const ok = await asUser(as('admin'), (tx) => tx`update hub.visitors set company = 'Fixed Co' where email = 'staff-01@example.com' returning 1`);
     expect(ok).toHaveLength(1);
   });
 
   it('staff edit/delete only their own interactions; admin any', async () => {
-    const [i] = await asUser(as('staff1'), (tx) => tx`insert into hub.interactions (badge_id, type, notes, created_by)
-      values ('STAFF-01', 'other', 'hello', ${ids.staff1}) returning id`);
+    const [i] = await asUser(as('staff1'), (tx) => tx`insert into hub.interactions (visitor_email, type, notes, created_by)
+      values ('staff-01@example.com', 'other', 'hello', ${ids.staff1}) returning id`);
     expect((await asUser(as('staff2'), (tx) => tx`update hub.interactions set notes = 'x' where id = ${i.id} returning 1`))).toHaveLength(0);
     expect((await asUser(as('staff2'), (tx) => tx`delete from hub.interactions where id = ${i.id} returning 1`))).toHaveLength(0);
     expect((await asUser(as('staff1'), (tx) => tx`update hub.interactions set notes = 'edited' where id = ${i.id} returning 1`))).toHaveLength(1);
-    await expect(asUser(as('staff2'), (tx) => tx`insert into hub.interactions (badge_id, type, notes, created_by)
-      values ('STAFF-01', 'other', 'pretend', ${ids.staff1})`)).rejects.toThrow(/row-level security/);
+    await expect(asUser(as('staff2'), (tx) => tx`insert into hub.interactions (visitor_email, type, notes, created_by)
+      values ('staff-01@example.com', 'other', 'pretend', ${ids.staff1})`)).rejects.toThrow(/row-level security/);
     expect((await asUser(as('admin'), (tx) => tx`delete from hub.interactions where id = ${i.id} returning 1`))).toHaveLength(1);
   });
 
@@ -159,19 +159,19 @@ describe('hub_user (signed-in team members)', () => {
   });
 
   it('a game screen account can read and write nothing in the Hub', async () => {
-    expect(await asUser(as('game'), (tx) => tx`select badge_id from hub.visitors`)).toHaveLength(0);
+    expect(await asUser(as('game'), (tx) => tx`select email from hub.visitors`)).toHaveLength(0);
     expect(await asUser(as('game'), (tx) => tx`select id from hub.app_users`)).toHaveLength(0);
     expect(await asUser(as('game'), (tx) => tx`select id from hub.interactions`)).toHaveLength(0);
     expect(await asUser(as('game'), (tx) => tx`select round_id from hub.game_rounds`)).toHaveLength(0);
-    await expect(asUser(as('game'), (tx) => tx`insert into hub.interactions (badge_id, type, notes, created_by)
-      values ('STAFF-01', 'other', 'x', ${ids.game})`)).rejects.toThrow(/row-level security/);
-    await expect(asUser(as('game'), (tx) => tx`insert into hub.visitors (badge_id, full_name, company, job_title, email, consent_given,
+    await expect(asUser(as('game'), (tx) => tx`insert into hub.interactions (visitor_email, type, notes, created_by)
+      values ('staff-01@example.com', 'other', 'x', ${ids.game})`)).rejects.toThrow(/row-level security/);
+    await expect(asUser(as('game'), (tx) => tx`insert into hub.visitors (full_name, company, job_title, email, consent_given,
       consent_version, consent_at, registration_mode, created_by)
-      values ('GAME-X', 'X', 'Co', 'T', 'x@example.com', true, ${consentVersion}, now(), 'staff', ${ids.game})`)).rejects.toThrow(/row-level security/);
+      values ('X', 'Co', 'T', 'game-x@example.com', true, ${consentVersion}, now(), 'staff', ${ids.game})`)).rejects.toThrow(/row-level security/);
   });
 
   it('a removed person is treated as nobody', async () => {
-    expect(await asUser(as('removed'), (tx) => tx`select badge_id from hub.visitors`)).toHaveLength(0);
+    expect(await asUser(as('removed'), (tx) => tx`select email from hub.visitors`)).toHaveLength(0);
   });
 });
 

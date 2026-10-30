@@ -1,4 +1,4 @@
-/* GET /api/admin/settings → {badgePattern, badgeHint, consentVersion, noticeText, marketingText, podcastTopics[], demos[]}  (admin)
+/* GET /api/admin/settings → {consentVersion, noticeText, marketingText, podcastTopics[], demos[]}  (admin)
  * PUT /api/admin/settings  same fields (minus consentVersion) → 200 {consentVersion}
  * Changing either consent text creates a new consent version. */
 import type { NextRequest } from 'next/server';

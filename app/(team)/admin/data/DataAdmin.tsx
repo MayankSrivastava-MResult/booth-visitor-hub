@@ -7,23 +7,23 @@ import type { EventCounts } from '@/lib/data/erase';
 const summary = (c: EventCounts) =>
   `${c.visitors} visitor${c.visitors === 1 ? '' : 's'}, ${c.interactions} interaction${c.interactions === 1 ? '' : 's'}, ${c.rounds} game round${c.rounds === 1 ? '' : 's'} (${c.plays} answers)`;
 
-export default function DataAdmin({ counts, initialBadge, purgePhrase }: { counts: EventCounts; initialBadge: string; purgePhrase: string }) {
+export default function DataAdmin({ counts, initialEmail, purgePhrase }: { counts: EventCounts; initialEmail: string; purgePhrase: string }) {
   const router = useRouter();
-  const [badge, setBadge] = useState(initialBadge);
-  const [badgeConfirm, setBadgeConfirm] = useState('');
+  const [email, setEmail] = useState(initialEmail);
+  const [emailConfirm, setEmailConfirm] = useState('');
   const [phrase, setPhrase] = useState('');
   const [msg, setMsg] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const b = badge.trim().toUpperCase();
+  const b = email.trim().toLowerCase();
 
   async function erase(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true); setMsg(null);
-    const res = await callApi<EventCounts>(`/api/admin/visitors/${encodeURIComponent(b)}`, 'DELETE', { confirm: badgeConfirm });
+    const res = await callApi<EventCounts>(`/api/admin/visitors/${encodeURIComponent(b)}`, 'DELETE', { confirm: emailConfirm });
     setBusy(false);
     if (res.ok) {
       setMsg({ kind: 'ok', text: `Deleted ${b}: ${summary(res.data)}.` });
-      setBadge(''); setBadgeConfirm(''); router.refresh();
+      setEmail(''); setEmailConfirm(''); router.refresh();
     } else setMsg({ kind: 'bad', text: res.data.error ?? 'Could not delete.' });
   }
 
@@ -43,13 +43,13 @@ export default function DataAdmin({ counts, initialBadge, purgePhrase }: { count
       <form className="card" onSubmit={erase}>
         <h2>Delete one visitor</h2>
         <p className="small muted">For a request to delete someone&rsquo;s data. Removes the visitor and everything recorded against
-          their badge ID: conversations, podcast, demos, notes and game rounds. Their name may still show on a game screen&rsquo;s
+          their email: conversations, podcast, demos, notes and game rounds. Their name may still show on a game screen&rsquo;s
           leaderboard until midnight; remove it there in the game&rsquo;s admin panel.</p>
-        <label className="field">Badge ID
-          <input type="text" className="badge-input" value={badge} onChange={(e) => setBadge(e.target.value)} autoCapitalize="characters" spellCheck={false} /></label>
-        <label className="field">Type the badge ID again to confirm
-          <input type="text" className="badge-input" value={badgeConfirm} onChange={(e) => setBadgeConfirm(e.target.value)} autoCapitalize="characters" spellCheck={false} /></label>
-        <button className="btn danger" type="submit" disabled={busy || !b || badgeConfirm.trim().toUpperCase() !== b}>
+        <label className="field">Visitor&rsquo;s email
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoCapitalize="off" autoComplete="off" spellCheck={false} /></label>
+        <label className="field">Type the email again to confirm
+          <input type="email" value={emailConfirm} onChange={(e) => setEmailConfirm(e.target.value)} autoCapitalize="off" autoComplete="off" spellCheck={false} /></label>
+        <button className="btn danger" type="submit" disabled={busy || !b || emailConfirm.trim().toLowerCase() !== b}>
           {busy ? 'Deleting…' : `Delete ${b || 'visitor'} and all their records`}</button>
       </form>
       <form className="card" onSubmit={purge}>

@@ -71,7 +71,6 @@ input[aria-invalid=true], textarea[aria-invalid=true], select[aria-invalid=true]
 .err { font-weight: 600; font-size: 14px; color: var(--danger); }
 .check { display: flex; gap: 12px; align-items: flex-start; font-weight: 500; font-size: 15px; line-height: 1.4; cursor: pointer; }
 .check input { width: 26px; height: 26px; flex-shrink: 0; margin: 0; accent-color: var(--charcoal); }
-.badge-input { text-transform: uppercase; letter-spacing: 0.06em; font-family: var(--display); font-weight: 700; font-size: 22px !important; }
 
 /* ---- Buttons ---- */
 .btn { font: inherit; font-family: var(--display); font-weight: 800; font-size: 19px; letter-spacing: 0.01em; border: 0; border-radius: 999px;
@@ -166,3 +165,9 @@ dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; ma
   .tile.primary { grid-column: auto; }
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 }
+
+/* ---- Log interaction: visitor search results ---- */
+.pick-list > .pick { display: flex; flex-direction: column; gap: 2px; text-align: left; width: 100%; background: none; border: 0;
+  border-top: 1px solid var(--line); padding: 12px 4px; font: inherit; color: inherit; cursor: pointer; min-height: 56px; }
+.pick-list > .pick:first-child { border-top: 0; }
+.pick-list > .pick:active { background: var(--orange-soft); }

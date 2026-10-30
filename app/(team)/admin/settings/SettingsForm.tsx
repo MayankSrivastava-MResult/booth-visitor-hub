@@ -19,7 +19,7 @@ export default function SettingsForm({ initial }: { initial: Settings }) {
     e.preventDefault();
     setBusy(true); setMsg(null); setFields({});
     const res = await callApi<{ consentVersion: number }>('/api/admin/settings', 'PUT', {
-      badgePattern: s.badgePattern, badgeHint: s.badgeHint, noticeText: s.noticeText, marketingText: s.marketingText,
+      noticeText: s.noticeText, marketingText: s.marketingText,
       podcastTopics: fromLines(s.podcastTopics), demos: fromLines(s.demos),
     });
     setBusy(false);
@@ -35,14 +35,6 @@ export default function SettingsForm({ initial }: { initial: Settings }) {
 
   return (
     <form className="stack" onSubmit={save} noValidate>
-      <div className="card">
-        <h2>Badge ID rule</h2>
-        <label className="field">Pattern <span className="opt">(regular expression, checked after trimming and uppercasing)</span>
-          <input type="text" value={s.badgePattern} onChange={(e) => setS({ ...s, badgePattern: e.target.value })} spellCheck={false} autoCapitalize="off" />
-          <span className="hint">Default: ^[A-Z0-9-]{'{4,20}'}$ (4 to 20 letters, digits or hyphens).</span>{err('badgePattern')}</label>
-        <label className="field">Hint shown to visitors
-          <input type="text" value={s.badgeHint} onChange={(e) => setS({ ...s, badgeHint: e.target.value })} />{err('badgeHint')}</label>
-      </div>
       <div className="card">
         <h2>Consent <span className="pill">version {s.consentVersion}</span></h2>
         <p className="small muted">Editing either text creates a new version. Each visitor keeps the version they agreed to.</p>

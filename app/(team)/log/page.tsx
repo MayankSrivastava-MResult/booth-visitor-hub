@@ -1,4 +1,4 @@
-/* Log interaction. ?badge=X prefills the badge (e.g. after registering a walk-in). */
+/* Log interaction. ?email=X preselects that visitor (e.g. after registering a walk-in). */
 import type { Metadata } from 'next';
 import InteractionForm from '@/components/InteractionForm';
 import { domainTagOptions, getSettings, listTeam } from '@/lib/data/team';
@@ -6,7 +6,7 @@ import { requireUser } from '@/lib/session';
 
 export const metadata: Metadata = { title: 'Log interaction' };
 
-export default async function LogPage({ searchParams }: { searchParams: Promise<{ badge?: string }> }) {
+export default async function LogPage({ searchParams }: { searchParams: Promise<{ email?: string }> }) {
   const user = await requireUser();
   const sp = await searchParams;
   const [team, settings, domainTags] = await Promise.all([listTeam(user, { peopleOnly: true }), getSettings(user), domainTagOptions(user)]);
@@ -17,7 +17,7 @@ export default async function LogPage({ searchParams }: { searchParams: Promise<
         me={{ id: user.id, displayName: user.displayName }}
         team={team.map((t) => ({ id: t.id, displayName: t.displayName }))}
         lists={{ podcastTopics: settings.podcastTopics, demos: settings.demos, domainTags }}
-        initialBadge={(sp.badge ?? '').toUpperCase().slice(0, 64)} />
+        initialEmail={(sp.email ?? '').trim().toLowerCase().slice(0, 254)} />
     </main>
   );
 }

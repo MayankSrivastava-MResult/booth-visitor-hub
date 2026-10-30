@@ -112,6 +112,7 @@ button:focus-visible { outline: 0.3rem solid var(--white); outline-offset: 0.3re
 .field label { font-size: 1.8rem; color: var(--muted); }
 .field .val { font-family: var(--display); font-weight: 700; font-size: 5.6rem; line-height: 1.1; min-height: 6.2rem; white-space: nowrap; overflow: hidden; }
 .field.small .val { font-size: 4rem; min-height: 4.4rem; }
+.field.email .val { font-size: 4rem; min-height: 4.4rem; text-transform: none; }   /* email: wider box, size steps down for long addresses (app.js) */
 .field .ph { color: #6B6B6B; }
 .caret { display: inline-block; width: 0.3rem; height: 0.9em; background: var(--orange); vertical-align: -0.1em; margin-left: 0.3rem; animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
@@ -316,7 +317,7 @@ button:focus-visible { outline: 0.3rem solid var(--white); outline-offset: 0.3re
     <div class="frame">
       <div class="topbar"><div class="wm" data-svg="wordmark-h"></div><button class="btn-ghost" id="name-back" style="height:6.8rem;padding:0 3rem;font-size:2.2rem">Back</button></div>
       <div class="name-wrap">
-        <!-- The badge confirmation takes the heading's place (same grid cell), so nothing below moves -->
+        <!-- The email prompt takes the heading's place (same grid cell), so nothing below moves -->
         <div class="name-top">
           <div class="name-head" id="name-head">
             <h1 class="h1 display">Pick a display name</h1>
@@ -328,9 +329,9 @@ button:focus-visible { outline: 0.3rem solid var(--white); outline-offset: 0.3re
           </div>
         </div>
         <div class="fields">
-          <!-- Badge first: confirming it fills in the display name. (The badge is still optional to play.) -->
-          <button class="field small active" id="f-vid"><label>Badge ID</label><div class="val" id="v-vid"></div></button>
-          <button class="field" id="f-name"><label>Display name</label><div class="val" id="v-name"></div></button>
+          <!-- Email first (required; it is the visitor's identity): confirming it fills in the display name. -->
+          <button class="field email active" id="f-email"><label>Email</label><div class="val" id="v-email"></div></button>
+          <button class="field small" id="f-name"><label>Display name</label><div class="val" id="v-name"></div></button>
         </div>
         <div class="name-msg" id="name-msg"></div>
         <div class="kb" id="kb"></div>
@@ -378,7 +379,7 @@ button:focus-visible { outline: 0.3rem solid var(--white); outline-offset: 0.3re
     <aside class="lb" id="lb-results"></aside>
   </section>
 
-  <!-- REGISTRATION (Hub mode): the Hub's public form over the game when a badge is not
+  <!-- REGISTRATION (Hub mode): the Hub's public form over the game when an email is not
        registered. The game page stays open underneath, so the music keeps playing. -->
   <section id="s-reg" class="screen">
     <div class="reg-bar"><button class="btn-ghost" id="reg-back">Back to the game</button></div>

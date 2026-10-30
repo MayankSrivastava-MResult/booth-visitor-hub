@@ -31,12 +31,12 @@ export type CreateResult = { ok: true; id: string } | { ok: false; reason: 'not_
 export async function createInteraction(user: SessionUser, input: InteractionInput): Promise<CreateResult> {
   const c = columns(input);
   return asUser(user, async (tx) => {
-    const [exists] = await tx`select 1 from hub.visitors where badge_id = ${input.badgeId}`;
+    const [exists] = await tx`select 1 from hub.visitors where email = ${input.visitorEmail}`;
     if (!exists) return { ok: false as const, reason: 'not_registered' as const };
     const [row] = await tx<{ id: string }[]>`
-      insert into hub.interactions (badge_id, type, notes, met_by, problem_statement, domain_tags, interest_level, next_step,
+      insert into hub.interactions (visitor_email, type, notes, met_by, problem_statement, domain_tags, interest_level, next_step,
                                     follow_up_owner, follow_up_date, podcast_topic, podcast_consent_signed, demo_name, created_by)
-      values (${input.badgeId}, ${input.type}, ${c.notes}, ${c.met_by}, ${c.problem_statement},
+      values (${input.visitorEmail}, ${input.type}, ${c.notes}, ${c.met_by}, ${c.problem_statement},
               ${c.domain_tags === null ? null : tx.array(c.domain_tags)}::text[], ${c.interest_level}, ${c.next_step},
               ${c.follow_up_owner}, ${c.follow_up_date}::date, ${c.podcast_topic}, ${c.podcast_consent_signed}, ${c.demo_name}, ${user.id})
       returning id`;
@@ -53,7 +53,7 @@ export async function updateInteraction(user: SessionUser, id: string, input: In
       interest_level = ${c.interest_level}, next_step = ${c.next_step}, follow_up_owner = ${c.follow_up_owner},
       follow_up_date = ${c.follow_up_date}::date, podcast_topic = ${c.podcast_topic},
       podcast_consent_signed = ${c.podcast_consent_signed}, demo_name = ${c.demo_name}, updated_by = ${user.id}
-    where id = ${id} and badge_id = ${input.badgeId}
+    where id = ${id} and visitor_email = ${input.visitorEmail}
     returning id`);
   return rows.length === 1;
 }
@@ -64,18 +64,18 @@ export async function deleteInteraction(user: SessionUser, id: string): Promise<
 }
 
 export type PodcastGuest = {
-  id: string; badgeId: string; fullName: string; jobTitle: string; company: string; linkedinUrl: string | null;
+  id: string; email: string; fullName: string; jobTitle: string; company: string; linkedinUrl: string | null;
   topic: string; consentSigned: boolean; notes: string | null; at: Date; loggedBy: string;
 };
 
 /** Podcast guests logged on one IST calendar day, in time order. */
 export async function podcastGuests(user: SessionUser, istDay: string): Promise<PodcastGuest[]> {
   return asUser(user, (tx) => tx<PodcastGuest[]>`
-    select i.id, v.badge_id as "badgeId", v.full_name as "fullName", v.job_title as "jobTitle", v.company,
+    select i.id, v.email, v.full_name as "fullName", v.job_title as "jobTitle", v.company,
            v.linkedin_url as "linkedinUrl", i.podcast_topic as topic, i.podcast_consent_signed as "consentSigned",
            i.notes, i.occurred_at as at, u.display_name as "loggedBy"
     from hub.interactions i
-    join hub.visitors v on v.badge_id = i.badge_id
+    join hub.visitors v on v.email = i.visitor_email
     join hub.app_users u on u.id = i.created_by
     where i.type = 'podcast' and (i.occurred_at at time zone 'Asia/Kolkata')::date = ${istDay}::date
     order by i.occurred_at`);

@@ -1,6 +1,6 @@
 /* POST /api/game/rounds   (any signed-in account: game, staff or admin) — the game's outbox sync.
  * Each round records the account that sent it.
- * Body: {items:[{round:{roundId, ts, date, displayName, visitorId, badgeConfirmed, domainId, score, questions,
+ * Body: {items:[{round:{roundId, ts, date, displayName, email, emailConfirmed, domainId, score, questions,
  *                       correct, longestStreak, endReason},
  *                plays:[{ts, questionId, result, msToSlice}]}]}   1–20 items
  * → 200 {acked:[roundId], rejected:[{roundId, reason}]}
@@ -19,8 +19,11 @@ const Item = z.object({
     ts: z.number().finite().positive(),
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     displayName: z.string().min(1).max(40),
-    visitorId: z.string().max(64).optional().default(''),
-    badgeConfirmed: z.boolean().optional().default(false),
+    email: z.string().max(254).optional().default(''),
+    emailConfirmed: z.boolean().optional().default(false),
+    // rounds saved on a screen before the switch to email still carry the old field names
+    visitorId: z.string().max(254).optional(),
+    badgeConfirmed: z.boolean().optional(),
     domainId: z.string().min(1).max(40),
     score: z.number().int().min(0),
     questions: z.number().int().min(0),
@@ -47,7 +50,11 @@ export async function POST(req: NextRequest) {
   const rejected: { roundId: string; reason: string }[] = [];
   for (const raw of body.items) {
     const p = Item.safeParse(raw);
-    if (p.success) valid.push(p.data);
+    if (p.success) {
+      // a round saved before the switch to email carries visitorId / badgeConfirmed instead
+      const r = p.data.round;
+      valid.push({ ...p.data, round: { ...r, email: r.email || r.visitorId || '', emailConfirmed: r.emailConfirmed || !!r.badgeConfirmed } });
+    }
     else rejected.push({ roundId: String((raw as { round?: { roundId?: unknown } })?.round?.roundId ?? ''), reason: p.error.issues[0]?.message ?? 'invalid' });
   }
   let acked: string[] = [];

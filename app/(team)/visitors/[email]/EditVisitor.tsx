@@ -1,10 +1,11 @@
 'use client';
-/* Admin-only: edit a visitor's details. The badge ID and consent cannot be changed here. */
+/* Admin-only: edit a visitor's details, including correcting a mistyped email
+ * (their interactions and game rounds move with it). Consent cannot be changed here. */
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { callApi } from '@/components/api';
 
-type V = { badgeId: string; fullName: string; company: string; jobTitle: string; email: string; mobile: string; linkedinUrl: string; marketingOptIn: boolean };
+type V = { fullName: string; company: string; jobTitle: string; email: string; mobile: string; linkedinUrl: string; marketingOptIn: boolean };
 
 export default function EditVisitor({ visitor }: { visitor: V }) {
   const router = useRouter();
@@ -17,10 +18,14 @@ export default function EditVisitor({ visitor }: { visitor: V }) {
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true); setMsg(''); setFields({});
-    const { badgeId, ...body } = v;
-    const res = await callApi(`/api/admin/visitors/${encodeURIComponent(badgeId)}`, 'PATCH', body);
+    const res = await callApi<{ email: string }>(`/api/admin/visitors/${encodeURIComponent(visitor.email)}`, 'PATCH', v);
     setBusy(false);
-    if (res.ok) { setOpen(false); router.refresh(); return; }
+    if (res.ok) {
+      setOpen(false);
+      if (res.data.email !== visitor.email) router.replace(`/visitors/${encodeURIComponent(res.data.email)}`);   // the page's address is the email
+      else router.refresh();
+      return;
+    }
     setFields(res.data.fields ?? {});
     setMsg(res.data.error ?? 'Could not save.');
   }
@@ -36,8 +41,9 @@ export default function EditVisitor({ visitor }: { visitor: V }) {
 
   return (
     <form className="stack" onSubmit={save} noValidate>
+      {text('email', 'Email (the visitor’s identity: correct it only if it was mistyped)', 'email')}
       {text('fullName', 'Full name')}{text('company', 'Company')}{text('jobTitle', 'Job title')}
-      {text('email', 'Email', 'email')}{text('mobile', 'Mobile', 'tel')}{text('linkedinUrl', 'LinkedIn', 'url')}
+      {text('mobile', 'Mobile', 'tel')}{text('linkedinUrl', 'LinkedIn', 'url')}
       <label className="check"><input type="checkbox" checked={v.marketingOptIn} onChange={(e) => setV({ ...v, marketingOptIn: e.target.checked })} />
         <span>Agreed to marketing communications</span></label>
       {msg && <p className="notice bad">{msg}</p>}

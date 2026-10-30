@@ -1,4 +1,4 @@
-/* Settings (admin): badge ID rule, consent notice text, podcast topics, demo list. */
+/* Settings (admin): consent notice text, podcast topics, demo list. */
 import type { Metadata } from 'next';
 import { getSettings } from '@/lib/data/team';
 import { requireAdmin } from '@/lib/session';

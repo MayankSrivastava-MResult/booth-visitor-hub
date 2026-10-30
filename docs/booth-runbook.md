@@ -18,7 +18,7 @@
    1. Import the CSV.
    2. Check that each domain has at least 20 enabled questions.
    3. Then **Delete TEST questions**.
-4. **Settings:** add the podcast topics and the demo list. As soon as the organisers share the real badge ID format, set it as the **Badge ID rule**, so the game only checks complete badge IDs.
+4. **Settings:** add the podcast topics and the demo list.
 5. **Clear the test data** (Hub → **Data** → **Purge all event data**). Do this after any rehearsal, and before doors open on 2 November.
 6. **Print the QR code** (Hub → **QR code** → Print or Download SVG) for the booth and the podcast table.
 
@@ -36,12 +36,12 @@
    - **Results waiting to send:** should drop to 0 when the network is up.
    - **Remove a leaderboard name** or **Reset today:** for tidying the leaderboard.
 
-**Players need their badge ID.** The game checks it by itself once it's fully typed. If it's registered, the game greets them by first name. If it isn't, it shows "isn't registered yet" with **Register now**: the form opens inside the game, and they're back playing within a minute.
+**Players need their email address.** They type it first (the keyboard has **@** and **.com** keys), and the game checks it by itself once it's complete. If it's registered, the game greets them by first name. If it isn't, it shows "isn't registered yet" with **Register now**: the form opens inside the game, and they're back playing within a minute.
 
 ## 3. The team at the booth
 
 - **Sign in on your own phone once.** It lasts 7 days, and you can be signed in on several devices.
-- **Log every conversation:** **Log interaction** → type the badge ID → check the name → **Conversation** → Hot, Warm or Cold → **Save**. It takes under 30 seconds.
+- **Log every conversation:** **Log interaction** → search by name, company or email → pick the visitor → **Conversation** → Hot, Warm or Cold → **Save**. It takes under 30 seconds.
   Use **Podcast** for guests, **Demo** for demos seen, **Other** for anything else.
 - **A visitor without a phone:** **Register visitor**, and fill it in together. Ask them to read and agree to the consent text.
 - **Podcast team:** the **Podcast** page lists today's guests with LinkedIn.
@@ -51,12 +51,12 @@
 
 | Problem | What to do |
 |---|---|
-| **Network down** | The game keeps working: rounds are saved on the screen and sent automatically later. Don't clear browser data, close a private window or sign out while results are waiting. Registration and Log interaction need the network, so note badge IDs on paper and enter them later. Visitors who play while the Hub is unreachable appear later under **Unmatched badge IDs** in the export. |
+| **Network down** | The game keeps working: rounds are saved on the screen and sent automatically later. Don't clear browser data, close a private window or sign out while results are waiting. Registration and Log interaction need the network, so note names and emails on paper and enter them later. Visitors who play while the Hub is unreachable and never register appear under **Unmatched emails** in the export. |
 | **A game screen breaks** | Take any other device and sign in with the game account. Keep the broken device: rounds it hasn't sent are still on it and are sent when it's back online. |
 | **"Not signed in" in the game admin panel** | Tap **Sign in** there and use the game account. Nothing played so far is lost. |
 | **Someone forgets their password** | Admin → **Team** → **Reset password**. That signs them out everywhere. |
 | **A phone is lost** | Admin → **Team** → change the person's password, or remove them. They're signed out at once. |
-| **Someone asks for their data to be deleted** | Admin → **Data** → **Delete one visitor**. Their name may still show on a game screen's leaderboard until midnight: remove it in the game admin panel. |
+| **Someone asks for their data to be deleted** | Admin → **Data** → **Delete one visitor** (type their email twice). Their name may still show on a game screen's leaderboard until midnight: remove it in the game admin panel. |
 
 ## 5. Every evening (admin)
 

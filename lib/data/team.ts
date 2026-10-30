@@ -1,4 +1,4 @@
-/* The team list (who can sign in), and settings (badge rule, consent text,
+/* The team list (who can sign in), and settings (consent text,
  * podcast topics, demo list). Admin-only writes are enforced here and by RLS. */
 import { asUser, pgCode, PG } from '../db';
 import { hashPassword } from '../password';
@@ -65,7 +65,7 @@ export type Settings = RegistrationConfig & { podcastTopics: string[]; demos: st
 
 export async function getSettings(user: SessionUser): Promise<Settings> {
   const [row] = await asUser(user, (tx) => tx<Settings[]>`
-    select s.badge_pattern as "badgePattern", s.badge_hint as "badgeHint", s.consent_version as "consentVersion",
+    select s.consent_version as "consentVersion",
            c.notice_text as "noticeText", c.marketing_text as "marketingText",
            s.podcast_topics as "podcastTopics", s.demos
     from hub.settings s join hub.consent_versions c on c.version = s.consent_version where s.id = 1`);
@@ -86,7 +86,7 @@ export async function saveSettings(admin: SessionUser, input: Omit<Settings, 'co
       await tx`insert into hub.consent_versions (version, notice_text, marketing_text, created_by)
                values (${version}, ${input.noticeText}, ${input.marketingText}, ${admin.id})`;
     }
-    await tx`update hub.settings set badge_pattern = ${input.badgePattern}, badge_hint = ${input.badgeHint},
+    await tx`update hub.settings set
                consent_version = ${version}, podcast_topics = ${tx.array(input.podcastTopics)}::text[],
                demos = ${tx.array(input.demos)}::text[], updated_by = ${admin.id}
              where id = 1`;

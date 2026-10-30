@@ -19,7 +19,7 @@ export default async function Home() {
           <Link className="tile" href="/admin/export"><b>Excel export</b><span>Everything, one click</span></Link>
           <Link className="tile" href="/admin/game"><b>Game content</b><span>Pharma Ninja domains, questions, CSV</span></Link>
           <Link className="tile" href="/admin/users"><b>Team</b><span>Who can sign in</span></Link>
-          <Link className="tile" href="/admin/settings"><b>Settings</b><span>Badge rule, consent text, topics, demos</span></Link>
+          <Link className="tile" href="/admin/settings"><b>Settings</b><span>Consent text, podcast topics, demos</span></Link>
         </>}
       </div>
     </main>

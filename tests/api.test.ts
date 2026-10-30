@@ -9,13 +9,13 @@ import * as exportRoute from '@/app/api/admin/export/route';
 import * as settingsRoute from '@/app/api/admin/settings/route';
 import * as usersRoute from '@/app/api/admin/users/route';
 import * as userRoute from '@/app/api/admin/users/[id]/route';
-import * as adminVisitorRoute from '@/app/api/admin/visitors/[badge]/route';
+import * as adminVisitorRoute from '@/app/api/admin/visitors/[email]/route';
 import * as loginRoute from '@/app/api/auth/login/route';
 import * as interactionRoute from '@/app/api/interactions/[id]/route';
 import * as interactionsRoute from '@/app/api/interactions/route';
 import * as registerRoute from '@/app/api/public/register/route';
 import * as visitorsRoute from '@/app/api/visitors/route';
-import * as summaryRoute from '@/app/api/visitors/[badge]/summary/route';
+import * as summaryRoute from '@/app/api/visitors/[email]/summary/route';
 import { rawSql } from '@/lib/db';
 import { hashPassword } from '@/lib/password';
 
@@ -83,7 +83,7 @@ describe('sign-in', () => {
 
 describe('CSRF', () => {
   it('blocks writes without an Origin header or from another site', async () => {
-    const body = { type: 'other', badgeId: 'X', notes: 'n' };
+    const body = { type: 'other', visitorEmail: 'x@example.com', notes: 'n' };
     expect((await interactionsRoute.POST(req('/api/interactions', { method: 'POST', body, cookie: staffCookie, origin: null }))).status).toBe(403);
     expect((await interactionsRoute.POST(req('/api/interactions', { method: 'POST', body, cookie: staffCookie, origin: 'https://evil.example' }))).status).toBe(403);
   });
@@ -92,7 +92,7 @@ describe('CSRF', () => {
 describe('without a login nobody can see visitor data', () => {
   it('returns 401 for every visitor/team endpoint', async () => {
     expect((await visitorsRoute.GET(req('/api/visitors'))).status).toBe(401);
-    expect((await summaryRoute.GET(req('/api/visitors/PUB-001/summary'), params({ badge: 'PUB-001' }))).status).toBe(401);
+    expect((await summaryRoute.GET(req('/api/visitors/pub-001@example.com/summary'), params({ email: 'pub-001@example.com' }))).status).toBe(401);
     expect((await exportRoute.GET(req('/api/admin/export'))).status).toBe(401);
     expect((await usersRoute.GET(req('/api/admin/users'))).status).toBe(401);
   });
@@ -102,23 +102,23 @@ describe('public registration', () => {
   const base = { fullName: 'Meera Iyer', company: 'Example Bio', jobTitle: 'VP Quality', email: 'meera@example.com',
     mobile: '+91 98765 43210', linkedinUrl: 'linkedin.com/in/meera', consent: true, marketingOptIn: true, consentVersion: 1 };
   it('creates, then refuses a duplicate without revealing or overwriting it', async () => {
-    const r1 = await registerRoute.POST(req('/api/public/register', { method: 'POST', body: { ...base, badgeId: ' gpps-1001 ' } }));
+    const r1 = await registerRoute.POST(req('/api/public/register', { method: 'POST', body: { ...base, email: ' Meera@Example.com ' } }));
     expect(r1.status).toBe(201);
-    expect(await r1.json()).toEqual({ status: 'created', badgeId: 'GPPS-1001' });
-    const r2 = await registerRoute.POST(req('/api/public/register', { method: 'POST', body: { ...base, badgeId: 'GPPS-1001', fullName: 'Impostor' } }));
+    expect(await r1.json()).toEqual({ status: 'created', email: 'meera@example.com' });
+    const r2 = await registerRoute.POST(req('/api/public/register', { method: 'POST', body: { ...base, fullName: 'Impostor' } }));
     expect(r2.status).toBe(409);
     const j = await r2.json();
-    expect(j.error).toBe('This badge is already registered — please see the MResult team.');
+    expect(j.error).toBe('This email is already registered — please see the MResult team.');
     expect(JSON.stringify(j)).not.toContain('Meera');
-    const [v] = await owner`select full_name, linkedin_url from hub.visitors where badge_id = 'GPPS-1001'`;
+    const [v] = await owner`select full_name, linkedin_url from hub.visitors where email = 'meera@example.com'`;
     expect(v).toEqual({ full_name: 'Meera Iyer', linkedin_url: 'https://linkedin.com/in/meera' });
   });
-  it('reports field errors: bad badge, missing consent, bad email', async () => {
+  it('reports field errors: missing name, missing consent, bad email', async () => {
     const r = await registerRoute.POST(req('/api/public/register', { method: 'POST',
-      body: { ...base, badgeId: 'a!', consent: false, email: 'nope' } }));
+      body: { ...base, fullName: ' ', consent: false, email: 'nope' } }));
     expect(r.status).toBe(400);
     const { fields } = await r.json();
-    expect(Object.keys(fields).sort()).toEqual(['badgeId', 'consent', 'email']);
+    expect(Object.keys(fields).sort()).toEqual(['consent', 'email', 'fullName']);
   });
 });
 
@@ -127,16 +127,16 @@ describe('role enforcement in the API', () => {
     expect((await usersRoute.GET(req('/api/admin/users', { cookie: staffCookie }))).status).toBe(403);
     expect((await settingsRoute.GET(req('/api/admin/settings', { cookie: staffCookie }))).status).toBe(403);
     expect((await exportRoute.GET(req('/api/admin/export', { cookie: staffCookie }))).status).toBe(403);
-    expect((await adminVisitorRoute.PATCH(req('/api/admin/visitors/GPPS-1001', { method: 'PATCH', cookie: staffCookie, body: {} }),
-      params({ badge: 'GPPS-1001' }))).status).toBe(403);
+    expect((await adminVisitorRoute.PATCH(req('/api/admin/visitors/meera@example.com', { method: 'PATCH', cookie: staffCookie, body: {} }),
+      params({ email: 'meera@example.com' }))).status).toBe(403);
     expect((await userRoute.PATCH(req(`/api/admin/users/${staffId}`, { method: 'PATCH', cookie: staffCookie, body: { role: 'admin' } }),
       params({ id: staffId }))).status).toBe(403);
   });
   it('staff can search and look up visitors', async () => {
     const r = await visitorsRoute.GET(req('/api/visitors?q=meera', { cookie: staffCookie }));
-    expect((await r.json()).items.map((i: { badgeId: string }) => i.badgeId)).toEqual(['GPPS-1001']);
-    const s = await summaryRoute.GET(req('/api/visitors/gpps-1001/summary', { cookie: staffCookie }), params({ badge: 'gpps-1001' }));
-    expect(await s.json()).toEqual({ found: true, badgeId: 'GPPS-1001', fullName: 'Meera Iyer', company: 'Example Bio', jobTitle: 'VP Quality' });
+    expect((await r.json()).items.map((i: { email: string }) => i.email)).toEqual(['meera@example.com']);
+    const s = await summaryRoute.GET(req('/api/visitors/MEERA@example.com/summary', { cookie: staffCookie }), params({ email: 'MEERA@example.com' }));
+    expect(await s.json()).toEqual({ found: true, email: 'meera@example.com', fullName: 'Meera Iyer', company: 'Example Bio', jobTitle: 'VP Quality' });
   });
 });
 
@@ -144,30 +144,30 @@ describe('interactions', () => {
   let convId = '';
   it('staff log a conversation (met by defaults handled by the form; API needs metBy)', async () => {
     const r = await interactionsRoute.POST(req('/api/interactions', { method: 'POST', cookie: staffCookie, body: {
-      type: 'conversation', badgeId: 'gpps-1001', metBy: staffId, problemStatement: 'Slow trial start-up', domainTags: ['Clinical Trials', 'Other'],
+      type: 'conversation', visitorEmail: 'Meera@example.com', metBy: staffId, problemStatement: 'Slow trial start-up', domainTags: ['Clinical Trials', 'Other'],
       interestLevel: 'hot', nextStep: 'Send case summary', followUpOwner: staffId, followUpDate: '2026-11-10' } }));
     expect(r.status).toBe(201);
     convId = (await r.json()).id;
   });
-  it('refuses an unregistered badge and offers registration', async () => {
+  it('refuses an unregistered visitor and offers registration', async () => {
     const r = await interactionsRoute.POST(req('/api/interactions', { method: 'POST', cookie: staffCookie,
-      body: { type: 'other', badgeId: 'NOT-HERE', notes: 'hi' } }));
+      body: { type: 'other', visitorEmail: 'not-here@example.com', notes: 'hi' } }));
     expect(r.status).toBe(404);
     expect((await r.json()).notRegistered).toBe(true);
   });
   it('rejects domain tags that are not in the list', async () => {
     const r = await interactionsRoute.POST(req('/api/interactions', { method: 'POST', cookie: staffCookie, body: {
-      type: 'conversation', badgeId: 'GPPS-1001', metBy: staffId, domainTags: ['Made Up'], interestLevel: 'warm' } }));
+      type: 'conversation', visitorEmail: 'meera@example.com', metBy: staffId, domainTags: ['Made Up'], interestLevel: 'warm' } }));
     expect(r.status).toBe(400);
   });
   it('another staff member cannot edit or delete it; the creator and admins can', async () => {
-    const body = { type: 'other', badgeId: 'GPPS-1001', notes: 'changed' };
+    const body = { type: 'other', visitorEmail: 'meera@example.com', notes: 'changed' };
     expect((await interactionRoute.PATCH(req(`/api/interactions/${convId}`, { method: 'PATCH', cookie: staff2Cookie, body }), params({ id: convId }))).status).toBe(404);
     expect((await interactionRoute.DELETE(req(`/api/interactions/${convId}`, { method: 'DELETE', cookie: staff2Cookie }), params({ id: convId }))).status).toBe(404);
     expect((await interactionRoute.PATCH(req(`/api/interactions/${convId}`, { method: 'PATCH', cookie: staffCookie,
-      body: { type: 'conversation', badgeId: 'GPPS-1001', metBy: staffId, interestLevel: 'warm', nextStep: 'Call on Monday' } }), params({ id: convId }))).status).toBe(200);
+      body: { type: 'conversation', visitorEmail: 'meera@example.com', metBy: staffId, interestLevel: 'warm', nextStep: 'Call on Monday' } }), params({ id: convId }))).status).toBe(200);
     // a second note by staff2, deleted by the admin
-    const r = await interactionsRoute.POST(req('/api/interactions', { method: 'POST', cookie: staff2Cookie, body: { type: 'other', badgeId: 'GPPS-1001', notes: 'n' } }));
+    const r = await interactionsRoute.POST(req('/api/interactions', { method: 'POST', cookie: staff2Cookie, body: { type: 'other', visitorEmail: 'meera@example.com', notes: 'n' } }));
     const id = (await r.json()).id;
     expect((await interactionRoute.DELETE(req(`/api/interactions/${id}`, { method: 'DELETE', cookie: adminCookie }), params({ id }))).status).toBe(200);
   });
@@ -178,16 +178,39 @@ describe('interactions', () => {
     expect(put.status).toBe(200);
     expect((await put.json()).consentVersion).toBe(1);   // consent text unchanged → same version
     const bad = await interactionsRoute.POST(req('/api/interactions', { method: 'POST', cookie: staffCookie,
-      body: { type: 'podcast', badgeId: 'GPPS-1001', podcastTopic: 'Something else', podcastConsentSigned: true } }));
+      body: { type: 'podcast', visitorEmail: 'meera@example.com', podcastTopic: 'Something else', podcastConsentSigned: true } }));
     expect(bad.status).toBe(400);
     const ok = await interactionsRoute.POST(req('/api/interactions', { method: 'POST', cookie: staffCookie,
-      body: { type: 'podcast', badgeId: 'GPPS-1001', podcastTopic: 'AI in clinical trials', podcastConsentSigned: true } }));
+      body: { type: 'podcast', visitorEmail: 'meera@example.com', podcastTopic: 'AI in clinical trials', podcastConsentSigned: true } }));
     expect(ok.status).toBe(201);
   });
   it('changing the consent text creates a new version', async () => {
     const s = await (await settingsRoute.GET(req('/api/admin/settings', { cookie: adminCookie }))).json();
     const put = await settingsRoute.PUT(req('/api/admin/settings', { method: 'PUT', cookie: adminCookie, body: { ...s, noticeText: s.noticeText + ' (v2)' } }));
     expect((await put.json()).consentVersion).toBe(2);
+  });
+});
+
+describe('admin corrects a visitor email', () => {
+  it('moves the visitor, their interactions and game rounds; refuses an email already in use', async () => {
+    const [me] = await owner`select id from hub.app_users where email = ${ADMIN}`;
+    await owner`select hub.game_ingest(${me.id}::uuid, ${owner.json([{ round: { roundId: 'fix00001', ts: Date.now(), date: '2026-11-02', displayName: 'Ty',
+      email: 'typo@exmaple.com', domainId: 'clinical', score: 5, questions: 1, correct: 1, longestStreak: 1, endReason: 'time' }, plays: [] }] as never)})`;
+    const reg = await registerRoute.POST(req('/api/public/register', { method: 'POST', body: { fullName: 'Tanya Rao', company: 'Example Co', jobTitle: 'Head of IT',
+      email: 'typo@exmaple.com', consent: true, consentVersion: (await owner`select consent_version as v from hub.settings`)[0].v } }));
+    expect(reg.status).toBe(201);
+    await interactionsRoute.POST(req('/api/interactions', { method: 'POST', cookie: staffCookie, body: { type: 'other', visitorEmail: 'typo@exmaple.com', notes: 'Met at the bar' } }));
+    const patch = (to: string) => adminVisitorRoute.PATCH(req('/api/admin/visitors/typo@exmaple.com', { method: 'PATCH', cookie: adminCookie,
+      body: { email: to, fullName: 'Tanya Rao', company: 'Example Co', jobTitle: 'Head of IT', marketingOptIn: false } }), params({ email: 'typo@exmaple.com' }));
+    expect((await patch('meera@example.com')).status).toBe(409);            // already someone else's
+    const ok = await patch('Tanya@Example.com');
+    expect(await ok.json()).toEqual({ ok: true, email: 'tanya@example.com' });
+    const [left] = await owner`select
+      (select count(*)::int from hub.visitors where email = 'tanya@example.com') as v,
+      (select count(*)::int from hub.interactions where visitor_email = 'tanya@example.com') as i,
+      (select count(*)::int from hub.game_rounds where player_email = 'tanya@example.com') as r,
+      (select count(*)::int from hub.visitors where email = 'typo@exmaple.com') as old`;
+    expect(left).toEqual({ v: 1, i: 1, r: 1, old: 0 });
   });
 });
 
@@ -205,17 +228,17 @@ describe('team management', () => {
 });
 
 describe('Excel export', () => {
-  it('produces every sheet with the visitor, touchpoints and an unmatched game badge', async () => {
+  it('produces every sheet with the visitor, touchpoints and an unmatched game email', async () => {
     const [me] = await owner`select id from hub.app_users where email = ${ADMIN}`;
     // own question, so this test does not depend on the seed still being there
     await owner`insert into hub.questions (id, domain_id, question_text, options, correct_index, difficulty, source)
       values ('exp-q1', 'clinical', 'What is the single EU portal for trial applications?', '{CTIS,EudraCT,IRIS,Other}', 0, 1, 'Real')
       on conflict (id) do nothing`;
     await owner`select hub.game_ingest(${me.id}::uuid, ${owner.json([
-      { round: { roundId: 'exp00001', ts: Date.now(), date: '2026-11-02', displayName: 'Meera', visitorId: 'GPPS-1001', badgeConfirmed: true,
+      { round: { roundId: 'exp00001', ts: Date.now(), date: '2026-11-02', displayName: 'Meera', email: 'meera@example.com', emailConfirmed: true,
         domainId: 'clinical', score: 250, questions: 3, correct: 3, longestStreak: 3, endReason: 'time' },
         plays: [{ ts: Date.now(), questionId: 'exp-q1', result: 'correct', msToSlice: 900 }] },
-      { round: { roundId: 'exp00002', ts: Date.now(), date: '2026-11-02', displayName: 'Guest', visitorId: 'UNREG-9',
+      { round: { roundId: 'exp00002', ts: Date.now(), date: '2026-11-02', displayName: 'Guest', email: 'unreg-9@example.com',
         domainId: 'genai', score: 40, questions: 2, correct: 1, longestStreak: 1, endReason: 'lives' }, plays: [] },
     ] as never)})`;
     const res = await exportRoute.GET(req('/api/admin/export', { cookie: adminCookie }));
@@ -224,14 +247,14 @@ describe('Excel export', () => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(Buffer.from(await res.arrayBuffer()) as never);
     expect(wb.worksheets.map((w) => w.name)).toEqual(['Visitors', 'Conversations', 'Podcast guests', 'Demos', 'Other notes',
-      'Game rounds', 'Game plays', 'Unmatched badge IDs']);
+      'Game rounds', 'Game plays', 'Unmatched emails']);
     const visitors = wb.getWorksheet('Visitors')!;
     const header = (visitors.getRow(1).values as string[]).slice(1);
     const meera = visitors.getRows(2, visitors.rowCount - 1)!.map((r) => Object.fromEntries(header.map((h, i) => [h, r.getCell(i + 1).value])))
-      .find((r) => r['Badge ID'] === 'GPPS-1001')!;
+      .find((r) => r['Email'] === 'meera@example.com')!;
     expect(meera).toMatchObject({ Conversations: 1, Podcast: 1, 'Game rounds': 1, 'Best game score': 250, 'Latest interest': 'warm',
       'Latest next step': 'Call on Monday', 'Marketing opt-in': 'yes' });
-    expect(wb.getWorksheet('Unmatched badge IDs')!.getRow(2).getCell(1).value).toBe('UNREG-9');
+    expect(wb.getWorksheet('Unmatched emails')!.getRow(2).getCell(1).value).toBe('unreg-9@example.com');
     const plays = wb.getWorksheet('Game plays')!;
     const mine = plays.getRows(2, plays.rowCount - 1)!.find((r) => r.getCell(2).value === 'exp00001')!;
     expect(mine.getCell(7).value).toBe('exp-q1');

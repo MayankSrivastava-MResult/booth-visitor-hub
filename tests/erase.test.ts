@@ -3,7 +3,7 @@
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as purgeRoute from '@/app/api/admin/purge/route';
-import * as adminVisitorRoute from '@/app/api/admin/visitors/[badge]/route';
+import * as adminVisitorRoute from '@/app/api/admin/visitors/[email]/route';
 import { rawSql } from '@/lib/db';
 import { hashPassword } from '@/lib/password';
 import { login, params, req } from './helpers';
@@ -11,19 +11,19 @@ import { login, params, req } from './helpers';
 const owner = postgres(process.env.TEST_OWNER_URL!, { max: 1, onnotice: () => {} });
 let admin = '', staff = '', adminId = '';
 
-async function visitor(badge: string, name: string) {
+async function visitor(email: string, name: string) {
   const [{ v }] = await owner`select consent_version as v from hub.settings`;
-  await owner`insert into hub.visitors (badge_id, full_name, company, job_title, email, consent_given, consent_version, consent_at, registration_mode)
-              values (${badge}, ${name}, 'Co', 'Title', 'x@example.com', true, ${v}, now(), 'self')`;
-  await owner`insert into hub.interactions (badge_id, type, notes, created_by) values (${badge}, 'other', 'note', ${adminId})`;
+  await owner`insert into hub.visitors (email, full_name, company, job_title, consent_given, consent_version, consent_at, registration_mode)
+              values (${email}, ${name}, 'Co', 'Title', true, ${v}, now(), 'self')`;
+  await owner`insert into hub.interactions (visitor_email, type, notes, created_by) values (${email}, 'other', 'note', ${adminId})`;
 }
-async function round(id: string, badge: string) {
+async function round(id: string, email: string) {
   await owner`select hub.game_ingest(${adminId}::uuid, ${owner.json([{ round: { roundId: id, ts: Date.now(), date: '2026-11-02', displayName: 'P',
-    visitorId: badge, domainId: 'quality', score: 10, questions: 2, correct: 1, longestStreak: 1, endReason: 'time' },
+    email, domainId: 'quality', score: 10, questions: 2, correct: 1, longestStreak: 1, endReason: 'time' },
     plays: [{ ts: Date.now(), questionId: 'q1', result: 'correct', msToSlice: 900 }, { ts: Date.now(), questionId: 'q2', result: 'missed', msToSlice: '' }] }] as never)})`;
 }
-const del = (badge: string, confirm: string, cookie = admin) =>
-  adminVisitorRoute.DELETE(req(`/api/admin/visitors/${badge}`, { method: 'DELETE', cookie, body: { confirm } }), params({ badge }));
+const del = (email: string, confirm: string, cookie = admin) =>
+  adminVisitorRoute.DELETE(req(`/api/admin/visitors/${email}`, { method: 'DELETE', cookie, body: { confirm } }), params({ email }));
 
 beforeAll(async () => {
   await owner`update hub.app_users set password_hash = ${await hashPassword('admin-pass-123')} where email = 'mayank.srivastava@mresult.com'`;
@@ -32,36 +32,36 @@ beforeAll(async () => {
   admin = await login('mayank.srivastava@mresult.com', 'admin-pass-123');
   staff = await login('erase-staff@mresult.com', 'staff-pass-123');
   [{ id: adminId }] = await owner`select id from hub.app_users where email = 'mayank.srivastava@mresult.com'`;
-  await visitor('ERASE-0001', 'To Be Erased'); await round('erase0001a', 'ERASE-0001'); await round('erase0001b', 'erase-0001');
-  await visitor('KEEP-0001', 'Stays Here'); await round('keep0001a', 'KEEP-0001');
-  await round('unreg0001a', 'UNREG-0042');
+  await visitor('erase-0001@example.com', 'To Be Erased'); await round('erase0001a', 'erase-0001@example.com'); await round('erase0001b', 'Erase-0001@Example.com');
+  await visitor('keep-0001@example.com', 'Stays Here'); await round('keep0001a', 'keep-0001@example.com');
+  await round('unreg0001a', 'unreg-0042@example.com');
 });
 afterAll(async () => { await owner.end(); await rawSql().end(); });
 
 describe('delete one visitor (right to erasure)', () => {
-  it('is admin only and needs the badge typed again', async () => {
-    expect((await del('ERASE-0001', 'ERASE-0001', staff)).status).toBe(403);
-    expect((await del('ERASE-0001', 'ERASE-0002')).status).toBe(400);
-    expect((await del('ERASE-0001', '')).status).toBe(400);
-    const [{ n }] = await owner`select count(*)::int as n from hub.visitors where badge_id = 'ERASE-0001'`;
+  it('is admin only and needs the email typed again', async () => {
+    expect((await del('erase-0001@example.com', 'erase-0001@example.com', staff)).status).toBe(403);
+    expect((await del('erase-0001@example.com', 'erase-0002@example.com')).status).toBe(400);
+    expect((await del('erase-0001@example.com', '')).status).toBe(400);
+    const [{ n }] = await owner`select count(*)::int as n from hub.visitors where email = 'erase-0001@example.com'`;
     expect(n).toBe(1);
   });
-  it('removes the visitor and everything recorded against the badge, nothing else', async () => {
-    const r = await del('ERASE-0001', 'erase-0001');   // confirmation is case-insensitive like badge IDs
+  it('removes the visitor and everything recorded against the email, nothing else', async () => {
+    const r = await del('erase-0001@example.com', 'Erase-0001@Example.COM');   // confirmation is case-insensitive like emails
     expect(r.status).toBe(200);
     expect(await r.json()).toEqual({ visitors: 1, interactions: 1, rounds: 2, plays: 4 });
     const [left] = await owner`select
-      (select count(*)::int from hub.visitors where badge_id = 'ERASE-0001') as v,
-      (select count(*)::int from hub.interactions where badge_id = 'ERASE-0001') as i,
-      (select count(*)::int from hub.game_rounds where badge_id = 'ERASE-0001') as r,
+      (select count(*)::int from hub.visitors where email = 'erase-0001@example.com') as v,
+      (select count(*)::int from hub.interactions where visitor_email = 'erase-0001@example.com') as i,
+      (select count(*)::int from hub.game_rounds where player_email = 'erase-0001@example.com') as r,
       (select count(*)::int from hub.game_plays where round_id like 'erase0001%') as p,
-      (select count(*)::int from hub.visitors where badge_id = 'KEEP-0001') as kv,
-      (select count(*)::int from hub.game_rounds where badge_id = 'KEEP-0001') as kr`;
+      (select count(*)::int from hub.visitors where email = 'keep-0001@example.com') as kv,
+      (select count(*)::int from hub.game_rounds where player_email = 'keep-0001@example.com') as kr`;
     expect(left).toEqual({ v: 0, i: 0, r: 0, p: 0, kv: 1, kr: 1 });
-    expect((await del('ERASE-0001', 'ERASE-0001')).status).toBe(404);
+    expect((await del('erase-0001@example.com', 'erase-0001@example.com')).status).toBe(404);
   });
-  it('also erases game rounds for a badge that was never registered', async () => {
-    const r = await del('UNREG-0042', 'UNREG-0042');
+  it('also erases game rounds for an email that was never registered', async () => {
+    const r = await del('unreg-0042@example.com', 'unreg-0042@example.com');
     expect(await r.json()).toEqual({ visitors: 0, interactions: 0, rounds: 1, plays: 2 });
   });
 });

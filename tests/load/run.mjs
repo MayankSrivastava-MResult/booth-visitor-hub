@@ -6,7 +6,7 @@
 // Scenario (all at once, per phase):
 //   1. 400 visitors register through the public form, 25 at a time
 //   2. 10 staff sign in and log 300 interactions, 10 at a time
-//   3. 6 game screens (one shared game account) look up badges and sync 300 rounds
+//   3. 6 game screens (one shared game account) look up emails and sync 300 rounds
 //      (12 answers each) in batches of 5, plus content refreshes
 //   4. one full Excel export
 // Reports latency (p50 / p95 / max) and errors per phase. Pass = no server errors.
@@ -80,8 +80,7 @@ try {
   const ip = (i) => ({ 'x-forwarded-for': `10.${(i >> 8) & 255}.${i & 255}.7` });
   console.log('\nPhase 1: visitor registrations');
   ok = report('register (public form)', await pool(Array.from({ length: 400 }, (_, i) => () => post('/api/public/register', {
-    badgeId: `LOAD-${String(i).padStart(4, '0')}`, fullName: `Visitor ${i}`, company: 'Example Co', jobTitle: 'Director',
-    email: `v${i}@example.com`, consent: true, marketingOptIn: i % 2 === 0, consentVersion }, ip(i))), 25)) && ok;
+    email: `load-${String(i).padStart(4, '0')}@example.com`, fullName: `Visitor ${i}`, company: 'Example Co', jobTitle: 'Director', consent: true, marketingOptIn: i % 2 === 0, consentVersion }, ip(i))), 25)) && ok;
 
   console.log('\nPhase 2: staff logging interactions');
   const cookies = [];
@@ -91,21 +90,21 @@ try {
   }
   const ids = await sql`select id from hub.app_users where role = 'staff' order by email`;
   ok = report('log interaction (conversation)', await pool(Array.from({ length: 300 }, (_, i) => () => post('/api/interactions', {
-    type: 'conversation', badgeId: `LOAD-${String(i % 400).padStart(4, '0')}`, metBy: ids[i % 10].id, problemStatement: 'Wants faster trial start-up',
+    type: 'conversation', visitorEmail: `load-${String(i % 400).padStart(4, '0')}@example.com`, metBy: ids[i % 10].id, problemStatement: 'Wants faster trial start-up',
     domainTags: ['Clinical Trials'], interestLevel: ['hot', 'warm', 'cold'][i % 3], nextStep: 'Send a case summary' },
     { cookie: `hub_session=${cookies[i % 10]}` })), 10)) && ok;
   ok = report('visitor page lookups (summary)', await pool(Array.from({ length: 200 }, (_, i) => () =>
-    fetch(`${B}/api/visitors/LOAD-${String(i).padStart(4, '0')}/summary`, { headers: { cookie: `hub_session=${cookies[i % 10]}` } })), 10)) && ok;
+    fetch(`${B}/api/visitors/load-${String(i).padStart(4, '0')}@example.com/summary`, { headers: { cookie: `hub_session=${cookies[i % 10]}` } })), 10)) && ok;
 
   console.log('\nPhase 3: 6 game screens on one game account');
   const g = await post('/api/auth/login', { email: 'game@mresult.com', password: 'load-pass-123' }, ip(2000));
   const game = { cookie: `hub_session=${/hub_session=([^;]+)/.exec(g.headers.get('set-cookie'))[1]}` };
   ok = report('content refresh', await pool(Array.from({ length: 60 }, () => () => fetch(`${B}/api/game/content`, { headers: game })), 6)) && ok;
-  ok = report('badge lookup (within the per-minute limit)', await pool(Array.from({ length: 55 }, (_, i) => () =>
-    post('/api/game/lookup', { badgeId: `LOAD-${String(i).padStart(4, '0')}` }, { ...game, ...ip(3000 + i) })), 6)) && ok;
+  ok = report('email lookup (within the per-minute limit)', await pool(Array.from({ length: 55 }, (_, i) => () =>
+    post('/api/game/lookup', { email: `load-${String(i).padStart(4, '0')}@example.com` }, { ...game, ...ip(3000 + i) })), 6)) && ok;
   const qs = await sql`select id from hub.questions`;
   const round = (n) => ({ round: { roundId: `load${String(n).padStart(6, '0')}`, ts: Date.now(), date: '2026-11-02', displayName: `Player ${n}`,
-    visitorId: `LOAD-${String(n % 400).padStart(4, '0')}`, badgeConfirmed: true, domainId: 'clinical', score: 400 + n, questions: 12, correct: 8,
+    email: `load-${String(n % 400).padStart(4, '0')}@example.com`, emailConfirmed: true, domainId: 'clinical', score: 400 + n, questions: 12, correct: 8,
     longestStreak: 4, endReason: 'time' }, plays: Array.from({ length: 12 }, (_, k) => ({ ts: Date.now(), questionId: qs[k % qs.length].id, result: k % 3 ? 'correct' : 'wrong', msToSlice: 1500 })) });
   ok = report('round sync (batches of 5 rounds)', await pool(Array.from({ length: 60 }, (_, b) => () =>
     post('/api/game/rounds', { items: Array.from({ length: 5 }, (_, k) => round(b * 5 + k)) }, game)), 6)) && ok;

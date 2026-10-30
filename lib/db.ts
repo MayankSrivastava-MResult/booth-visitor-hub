@@ -7,7 +7,7 @@
  *   asUser(user, fn)  signed-in team member (role hub_user + setting hub.user_id)
  *   asPublic(fn)      unauthenticated registration form (role hub_public)
  *   asGame(fn)        Pharma Ninja, for a signed-in account (role hub_game: game
- *                     content, badge first-name lookup and saving rounds ONLY)
+ *                     content, email first-name lookup and saving rounds ONLY)
  *
  * Calls that run as hub_api itself (sessions, rate limits) use rawSql().
  * prepare:false is required by Supabase's transaction pooler.

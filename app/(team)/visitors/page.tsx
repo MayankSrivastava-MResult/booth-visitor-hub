@@ -1,4 +1,4 @@
-/* Visitor search: by badge ID, name, company or email. Newest first. */
+/* Visitor search: by name, company or email. Newest first. */
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { searchVisitors } from '@/lib/data/visitors';
@@ -15,7 +15,7 @@ export default async function VisitorsPage({ searchParams }: { searchParams: Pro
     <main className="page">
       <h1>Visitors</h1>
       <form className="row" action="/visitors" role="search">
-        <input type="search" name="q" defaultValue={q} placeholder="Badge ID, name, company or email" style={{ flex: 1, minWidth: 0 }} />
+        <input type="search" name="q" defaultValue={q} placeholder="Name, company or email" style={{ flex: 1, minWidth: 0 }} />
         <button className="btn" type="submit">Search</button>
       </form>
       <div className="card">
@@ -23,12 +23,12 @@ export default async function VisitorsPage({ searchParams }: { searchParams: Pro
         {items.length === 0 ? <p className="muted">No visitors found.</p> : (
           <div className="list">
             {items.map((v) => (
-              <Link key={v.badgeId} href={`/visitors/${encodeURIComponent(v.badgeId)}`} className="spread">
+              <Link key={v.email} href={`/visitors/${encodeURIComponent(v.email)}`} className="spread">
                 <span className="stack" style={{ gap: 0 }}>
                   <span className="item-title">{v.fullName}</span>
                   <span className="small muted">{v.jobTitle} · {v.company}</span>
                 </span>
-                <span className="small muted" style={{ textAlign: 'right' }}>{v.badgeId}<br />{formatIst(v.createdAt)}</span>
+                <span className="small muted" style={{ textAlign: 'right' }}>{v.email}<br />{formatIst(v.createdAt)}</span>
               </Link>
             ))}
           </div>

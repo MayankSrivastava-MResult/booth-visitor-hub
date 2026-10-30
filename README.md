@@ -1,7 +1,7 @@
 # MResult Booth Visitor Hub
 
 One hosted system for MResult's booth (Global Pharma Partnering Summit 2026, Booth G1): every visitor is identified by
-their organiser-issued **badge ID**, and every touchpoint is recorded against it: registration, conversations,
+their **email address**, and every touchpoint is recorded against it: registration, conversations,
 podcast guests, demos, notes and Pharma Ninja game rounds. Admins export everything to Excel.
 
 Next.js (App Router, TypeScript) on Vercel; Postgres on Supabase (used as plain Postgres, no Supabase Auth).
@@ -14,7 +14,7 @@ Next.js (App Router, TypeScript) on Vercel; Postgres on Supabase (used as plain 
 | `app/login` | Team sign-in (email + password). |
 | `app/(team)/…` | Signed-in pages for admin and staff: home, log interaction, visitors, staff-assisted registration, podcast list, admin (export, game content, team, settings). |
 | `app/api/…` | JSON API. Each route file starts with a comment giving its request and response shapes. |
-| `app/api/game/…` | The API Pharma Ninja uses: content, badge lookup (first name only), round sync. Any signed-in account; this is ALL a **Game screen** account can reach. |
+| `app/api/game/…` | The API Pharma Ninja uses: content, email lookup (first name only), round sync. Any signed-in account; this is ALL a **Game screen** account can reach. |
 | `/play` | Pharma Ninja, built from `pharma-ninja-src/` by `npm run build:game` (runs automatically before `dev` and `build`). |
 | `lib/questions.ts` | Game content rules (same as the game's `validate.js`) and the CSV layout. |
 | `components/` | Shared client components: registration form, interaction form. |

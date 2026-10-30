@@ -1,7 +1,7 @@
 /* Admin data removal (admin only; enforced here and by row-level security):
  *   eraseVisitor  right-to-erasure: one visitor and everything recorded against their
- *                 badge ID (interactions, game rounds and plays), in one transaction.
- *                 Also works for a badge that only exists in game rounds (unregistered).
+ *                 email (interactions, game rounds and plays), in one transaction.
+ *                 Also works for an email that only exists in game rounds (unregistered).
  *   purgeEvent    all event data: every visitor, interaction, game round and play.
  *                 Keeps game content, settings, consent texts and team accounts.
  * Neither can reach data still waiting on a game screen that has not synced yet; the
@@ -21,13 +21,13 @@ export async function eventCounts(admin: SessionUser): Promise<EventCounts> {
   return c;
 }
 
-export async function eraseVisitor(admin: SessionUser, badgeId: string): Promise<(EventCounts & { found: boolean })> {
+export async function eraseVisitor(admin: SessionUser, email: string): Promise<(EventCounts & { found: boolean })> {
   return asUser(admin, async (tx) => {
     const [before] = await tx<{ interactions: number; plays: number }[]>`
-      select (select count(*)::int from hub.interactions where badge_id = ${badgeId}) as interactions,
-             (select count(*)::int from hub.game_plays p join hub.game_rounds r on r.round_id = p.round_id where r.badge_id = ${badgeId}) as plays`;
-    const rounds = await tx`delete from hub.game_rounds where badge_id = ${badgeId} returning round_id`;     // plays go with them
-    const visitors = await tx`delete from hub.visitors where badge_id = ${badgeId} returning badge_id`;       // interactions go with it
+      select (select count(*)::int from hub.interactions where visitor_email = ${email}) as interactions,
+             (select count(*)::int from hub.game_plays p join hub.game_rounds r on r.round_id = p.round_id where r.player_email = ${email}) as plays`;
+    const rounds = await tx`delete from hub.game_rounds where player_email = ${email} returning round_id`;     // plays go with them
+    const visitors = await tx`delete from hub.visitors where email = ${email} returning email`;       // interactions go with it
     const found = visitors.length > 0 || rounds.length > 0;
     return { found, visitors: visitors.length, interactions: visitors.length ? before.interactions : 0, rounds: rounds.length, plays: before.plays };
   });

@@ -3,18 +3,19 @@
 import { z } from 'zod';
 import { MIN_PASSWORD_LENGTH } from './password';
 
-const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Badge IDs are stored trimmed and uppercased. */
-export const normaliseBadge = (s: string) => s.trim().toUpperCase();
+/** A visitor is identified by their email address, stored trimmed and lower-case. */
+export const normaliseEmail = (s: string) => s.trim().toLowerCase();
+export const looksLikeEmail = (s: string) => EMAIL_RE.test(s) && s.length <= 254;
 
-/** Badge ID from a URL segment (decoded at most once, normalised, length-capped). */
-export function badgeFromParam(raw: string): string {
+/** Visitor email from a URL segment (decoded at most once, normalised, length-capped). */
+export function emailFromParam(raw: string): string {
   let s = raw;
   try { s = decodeURIComponent(raw); } catch { /* already decoded */ }
-  return normaliseBadge(s).slice(0, 64);
+  return normaliseEmail(s).slice(0, 254);
 }
 
 const required = (label: string, max: number) =>
@@ -23,7 +24,9 @@ const required = (label: string, max: number) =>
 const optionalText = (max: number) =>
   z.string().trim().max(max, `Too long (max ${max}).`).optional().nullable().transform((v) => (v ? v : null));
 
-const email = z.string({ error: 'Email is required.' }).trim().max(254).regex(EMAIL_RE, 'Enter a valid email address.');
+const email = z.string({ error: 'Email is required.' }).transform(normaliseEmail)
+  .refine((v) => v.length > 0, 'Email is required.')
+  .refine(looksLikeEmail, 'Enter a valid email address.');
 
 const mobile = z.string().trim().optional().nullable()
   .transform((v) => (v ? v : null))
@@ -45,21 +48,15 @@ const linkedin = z.string().trim().max(300).optional().nullable()
     }
   });
 
-export type RegistrationConfig = {
-  consentVersion: number; noticeText: string; marketingText: string; badgePattern: string; badgeHint: string;
-};
+export type RegistrationConfig = { consentVersion: number; noticeText: string; marketingText: string };
 
-/** Visitor registration (public form and staff-assisted). */
-export function registrationSchema(cfg: Pick<RegistrationConfig, 'badgePattern' | 'badgeHint'>) {
-  const re = new RegExp(cfg.badgePattern);
+/** Visitor registration (public form and staff-assisted). The email is the visitor's identity. */
+export function registrationSchema() {
   return z.object({
-    badgeId: z.string({ error: 'Badge ID is required.' }).transform(normaliseBadge)
-      .refine((v) => v.length > 0, 'Badge ID is required.')
-      .refine((v) => v.length <= 64 && re.test(v), `Badge ID should be ${cfg.badgeHint}.`),
+    email,
     fullName: required('Full name', 120),
     company: required('Company', 120),
     jobTitle: required('Job title', 120),
-    email,
     mobile,
     linkedinUrl: linkedin,
     consent: z.literal(true, { error: 'Please tick the box to agree.' }),
@@ -69,20 +66,20 @@ export function registrationSchema(cfg: Pick<RegistrationConfig, 'badgePattern' 
 }
 export type Registration = z.infer<ReturnType<typeof registrationSchema>>;
 
-/** Admin edit of a visitor (consent fields are not editable). */
-export function visitorEditSchema(cfg: Pick<RegistrationConfig, 'badgePattern' | 'badgeHint'>) {
-  return registrationSchema(cfg).omit({ consent: true, consentVersion: true, marketingOptIn: true })
+/** Admin edit of a visitor (consent fields are not editable; a changed email moves the whole record). */
+export function visitorEditSchema() {
+  return registrationSchema().omit({ consent: true, consentVersion: true, marketingOptIn: true })
     .extend({ marketingOptIn: z.boolean() });
 }
 
 const uuid = z.string().regex(UUID_RE, 'Pick a team member.');
-const badgeRef = z.string().transform(normaliseBadge).refine((v) => v.length > 0 && v.length <= 64, 'Badge ID is required.');
+const visitorRef = z.string({ error: 'Pick a visitor.' }).transform(normaliseEmail).refine(looksLikeEmail, 'Pick a visitor.');
 
 /** Log interaction: one shape per type. */
 export const interactionSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('conversation'),
-    badgeId: badgeRef,
+    visitorEmail: visitorRef,
     metBy: uuid,
     problemStatement: optionalText(4000),
     domainTags: z.array(z.string().trim().min(1).max(60)).max(20).optional().default([]),
@@ -93,20 +90,20 @@ export const interactionSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('podcast'),
-    badgeId: badgeRef,
+    visitorEmail: visitorRef,
     podcastTopic: required('Topic', 200),
     notes: optionalText(4000),
     podcastConsentSigned: z.boolean({ error: 'Say whether the consent form is signed.' }),
   }),
   z.object({
     type: z.literal('demo'),
-    badgeId: badgeRef,
+    visitorEmail: visitorRef,
     demoName: required('Demo', 200),
     notes: optionalText(4000),
   }),
   z.object({
     type: z.literal('other'),
-    badgeId: badgeRef,
+    visitorEmail: visitorRef,
     notes: required('Note', 4000),
   }),
 ]);
@@ -130,9 +127,6 @@ export const editUserSchema = z.object({
 const listOfNames = z.array(z.string().trim().min(1).max(200)).max(50)
   .transform((a) => Array.from(new Set(a)));
 export const settingsSchema = z.object({
-  badgePattern: z.string().trim().min(1).max(200).refine((p) => { try { new RegExp(p); return true; } catch { return false; } },
-    'Not a valid pattern.'),
-  badgeHint: required('Badge hint', 120),
   noticeText: required('Consent notice', 3000),
   marketingText: required('Marketing consent text', 1000),
   podcastTopics: listOfNames,

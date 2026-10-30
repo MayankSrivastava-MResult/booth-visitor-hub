@@ -1,10 +1,10 @@
 'use client';
 /* Log interaction (and edit an existing one). Phone-first, built for speed:
- *   1. type or paste the badge ID → the visitor's name, company and title appear for confirmation
- *      (or "not registered → register now", which comes back here afterwards)
+ *   1. find the visitor: type part of their name, company or email and tap them in the list
+ *      (nobody found → "Register them now", which comes back here afterwards)
  *   2. pick the type: Conversation / Podcast guest / Demo seen / Other
  *   3. fill the few fields for that type and save.
- * "Met by" defaults to the signed-in person. */
+ * "Met by" defaults to the signed-in person. Visitors are identified by email. */
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { callApi } from './api';
@@ -12,7 +12,7 @@ import { callApi } from './api';
 export type TeamOption = { id: string; displayName: string };
 export type Lists = { podcastTopics: string[]; demos: string[]; domainTags: string[] };
 type Type = 'conversation' | 'podcast' | 'demo' | 'other';
-type Who = { badgeId: string; fullName: string; company: string; jobTitle: string };
+type Who = { email: string; fullName: string; company: string; jobTitle: string };
 
 export type InteractionValues = {
   type: Type; metBy: string; problemStatement: string; domainTags: string[]; interestLevel: '' | 'hot' | 'warm' | 'cold';
@@ -24,8 +24,9 @@ type Props = {
   me: TeamOption;
   team: TeamOption[];
   lists: Lists;
-  initialBadge?: string;
-  /** Editing: the interaction id, its values and its visitor (badge is fixed). */
+  /** Preselect this visitor (e.g. after registering a walk-in, or from their visitor page). */
+  initialEmail?: string;
+  /** Editing: the interaction id, its values and its visitor (the visitor is fixed). */
   existing?: { id: string; values: InteractionValues; who: Who };
   onSaved?: () => void;
 };
@@ -33,42 +34,48 @@ type Props = {
 const TYPES: { k: Type; label: string }[] = [
   { k: 'conversation', label: 'Conversation' }, { k: 'podcast', label: 'Podcast' }, { k: 'demo', label: 'Demo' }, { k: 'other', label: 'Other' },
 ];
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/;
 
 const blank = (me: string): InteractionValues => ({
   type: 'conversation', metBy: me, problemStatement: '', domainTags: [], interestLevel: '', nextStep: '', followUpOwner: '',
   followUpDate: '', podcastTopic: '', podcastConsentSigned: null, demoName: '', notes: '',
 });
 
-export default function InteractionForm({ me, team, lists, initialBadge = '', existing, onSaved }: Props) {
-  const [badge, setBadge] = useState(existing?.who.badgeId ?? initialBadge);
+export default function InteractionForm({ me, team, lists, initialEmail = '', existing, onSaved }: Props) {
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<Who[]>([]);
+  const [search, setSearch] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
   const [who, setWho] = useState<Who | null>(existing?.who ?? null);
-  const [lookup, setLookup] = useState<'idle' | 'busy' | 'missing' | 'error'>('idle');
   const [v, setV] = useState<InteractionValues>(existing?.values ?? blank(me.id));
   const [fields, setFields] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const seq = useRef(0);
 
-  async function find(raw: string) {
-    const b = raw.trim().toUpperCase();
-    if (!b) { setWho(null); setLookup('idle'); return; }
-    const mine = ++seq.current;
-    setLookup('busy');
-    const res = await callApi<{ found: boolean } & Who>(`/api/visitors/${encodeURIComponent(b)}/summary`, 'GET');
-    if (mine !== seq.current) return;                     // a newer lookup has started
-    if (!res.ok) { setLookup('error'); setWho(null); return; }
-    if (res.data.found) { setWho(res.data); setLookup('idle'); } else { setWho(null); setLookup('missing'); }
-  }
-
-  // Look the badge up shortly after typing stops (and straight away for a prefilled badge).
+  // A visitor handed in by email (after registering, or from their visitor page) is selected straight away.
   useEffect(() => {
-    if (existing) return;
-    if (!badge.trim()) { setWho(null); setLookup('idle'); return; }
-    if (who && who.badgeId === badge.trim().toUpperCase()) return;
-    const t = setTimeout(() => find(badge), initialBadge && badge === initialBadge ? 0 : 450);
+    if (existing || !initialEmail) return;
+    callApi<{ found: boolean } & Who>(`/api/visitors/${encodeURIComponent(initialEmail)}/summary`, 'GET')
+      .then((res) => { if (res.ok && res.data.found) setWho(res.data); else setQuery(initialEmail); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Search as they type (name, company or email), shortly after typing stops.
+  useEffect(() => {
+    if (existing || who) return;
+    const q = query.trim();
+    if (q.length < 2) { setResults([]); setSearch('idle'); return; }
+    const mine = ++seq.current;
+    const t = setTimeout(async () => {
+      setSearch('busy');
+      const res = await callApi<{ items: Who[] }>(`/api/visitors?q=${encodeURIComponent(q)}`, 'GET');
+      if (mine !== seq.current) return;                     // a newer search has started
+      if (!res.ok) { setSearch('error'); setResults([]); return; }
+      setResults(res.data.items.slice(0, 8)); setSearch('done');
+    }, 300);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [badge]);
+  }, [query, who]);
 
   const set = <K extends keyof InteractionValues>(k: K, val: InteractionValues[K]) => {
     setV((cur) => ({ ...cur, [k]: val }));
@@ -76,13 +83,13 @@ export default function InteractionForm({ me, team, lists, initialBadge = '', ex
   };
 
   function body() {
-    const b = who!.badgeId;
+    const e = who!.email;
     switch (v.type) {
-      case 'conversation': return { type: v.type, badgeId: b, metBy: v.metBy, problemStatement: v.problemStatement, domainTags: v.domainTags,
+      case 'conversation': return { type: v.type, visitorEmail: e, metBy: v.metBy, problemStatement: v.problemStatement, domainTags: v.domainTags,
         interestLevel: v.interestLevel || undefined, nextStep: v.nextStep, followUpOwner: v.followUpOwner || null, followUpDate: v.followUpDate || null };
-      case 'podcast': return { type: v.type, badgeId: b, podcastTopic: v.podcastTopic, notes: v.notes, podcastConsentSigned: v.podcastConsentSigned ?? undefined };
-      case 'demo': return { type: v.type, badgeId: b, demoName: v.demoName, notes: v.notes };
-      case 'other': return { type: v.type, badgeId: b, notes: v.notes };
+      case 'podcast': return { type: v.type, visitorEmail: e, podcastTopic: v.podcastTopic, notes: v.notes, podcastConsentSigned: v.podcastConsentSigned ?? undefined };
+      case 'demo': return { type: v.type, visitorEmail: e, demoName: v.demoName, notes: v.notes };
+      case 'other': return { type: v.type, visitorEmail: e, notes: v.notes };
     }
   }
 
@@ -105,10 +112,12 @@ export default function InteractionForm({ me, team, lists, initialBadge = '', ex
     setMsg({ kind: 'bad', text: res.data.error ?? 'Could not save. Try again.' });
   }
 
-  function newVisitor() { setBadge(''); setWho(null); setLookup('idle'); setMsg(null); setV(blank(me.id)); }
+  function pick(w: Who) { setWho(w); setResults([]); setSearch('idle'); setMsg(null); }
+  function newVisitor() { setQuery(''); setWho(null); setResults([]); setSearch('idle'); setMsg(null); setV(blank(me.id)); }
 
   const err = (k: string) => (fields[k] ? <span className="err">{fields[k]}</span> : null);
-  const encBadge = encodeURIComponent(badge.trim().toUpperCase());
+  const q = query.trim();
+  const registerHref = `/staff-register?continue=/log${EMAIL_RE.test(q) ? `&email=${encodeURIComponent(q.toLowerCase())}` : ''}`;
 
   return (
     <form className="stack" onSubmit={save} noValidate>
@@ -123,23 +132,36 @@ export default function InteractionForm({ me, team, lists, initialBadge = '', ex
       )}
 
       <div className="card">
-        {existing ? (
-          <div className="who-box"><span className="nm">{who!.fullName}</span><span>{who!.jobTitle} · {who!.company}</span><span className="small muted">{who!.badgeId}</span></div>
+        {who ? (
+          <div className="who-box">
+            <span className="nm">{who.fullName}</span><span>{who.jobTitle} · {who.company}</span><span className="small muted">{who.email}</span>
+            {!existing && <button type="button" className="linkbtn small" style={{ alignSelf: 'flex-start', marginTop: 4 }} onClick={newVisitor}>Change visitor</button>}
+          </div>
         ) : (
           <>
-            <label className="field">Badge ID
-              <input type="text" className="badge-input" value={badge} onChange={(e) => setBadge(e.target.value)}
-                autoCapitalize="characters" autoCorrect="off" autoComplete="off" spellCheck={false} placeholder="Type or paste" />
+            <label className="field">Find the visitor
+              <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Name, company or email"
+                autoCapitalize="off" autoCorrect="off" autoComplete="off" spellCheck={false} enterKeyHint="search" />
             </label>
-            {lookup === 'busy' && <p className="hint">Looking up…</p>}
-            {lookup === 'error' && <p className="notice bad">Could not look that up. Check the connection.</p>}
-            {lookup === 'missing' && (
-              <div className="notice info stack">
-                <span>{badge.trim().toUpperCase()} is not registered yet.</span>
-                <Link className="btn small dark" href={`/staff-register?badge=${encBadge}&continue=/log`}>Register them now</Link>
+            {search === 'busy' && results.length === 0 && <p className="hint">Searching…</p>}
+            {search === 'error' && <p className="notice bad">Could not search. Check the connection.</p>}
+            {results.length > 0 && (
+              <div className="list pick-list" role="listbox" aria-label="Matching visitors">
+                {results.map((r) => (
+                  <button type="button" key={r.email} role="option" aria-selected={false} className="pick" onClick={() => pick(r)}>
+                    <span className="item-title">{r.fullName}</span>
+                    <span className="small muted">{r.jobTitle} · {r.company}</span>
+                    <span className="small muted">{r.email}</span>
+                  </button>
+                ))}
               </div>
             )}
-            {who && <div className="who-box"><span className="nm">{who.fullName}</span><span>{who.jobTitle} · {who.company}</span></div>}
+            {search === 'done' && results.length === 0 && (
+              <div className="notice info stack">
+                <span>No registered visitor matches &ldquo;{q}&rdquo;.</span>
+                <Link className="btn small dark" href={registerHref}>Register them now</Link>
+              </div>
+            )}
           </>
         )}
       </div>

@@ -5,10 +5,10 @@
 //
 // A. Offline (the brief's test): disconnect mid-round, reload with no server (service worker),
 //    play 3 rounds offline, reconnect → every round synced exactly once, every play stored.
-// B. Register from the game: badge required; a complete badge is checked as it is typed (no
-//    suggestions); unregistered → "isn't registered yet" → Register now → the form over the game
-//    with the badge prefilled, music keeps playing; saved → back with first name, confirmed.
-// C. Standalone file (no Hub): zero network requests; badge required; plays unconfirmed.
+// B. Register from the game: email required; a complete email is checked as it is typed (no
+//    suggestions); unregistered → "This email isn't registered yet" → Register now → the form over
+//    the game with the email prefilled, music keeps playing; saved → back with first name, confirmed.
+// C. Standalone file (no Hub): zero network requests; email required; plays unconfirmed.
 import { execSync, spawn } from 'node:child_process';
 import { randomBytes, scrypt } from 'node:crypto';
 import fs from 'node:fs';
@@ -77,10 +77,10 @@ async function flowOffline(sql, cookie) {
     check('signed-in game screen loads questions from the Hub', true, await c.eval('PharmaNinja.Store.data.questions.length + " questions"'));
 
     const play = async (name, domain, poke) => {
-      await c.eval(`PharmaNinja.Round.start({ displayName: ${JSON.stringify(name)}, visitorId: 'E2E-0001', badgeConfirmed: true }, '${domain}'); true`);
+      await c.eval(`PharmaNinja.Round.start({ displayName: ${JSON.stringify(name)}, email: 'asha@example.com', emailConfirmed: true }, '${domain}'); true`);
       await c.waitFor('PharmaNinja.Screens.current === "hud"');
       await sleep(1200);
-      if (poke) await c.eval('PharmaNinja.Hub.refreshContent(); PharmaNinja.Hub.flush(); PharmaNinja.Hub.lookup("E2E-0001"); true');
+      if (poke) await c.eval('PharmaNinja.Hub.refreshContent(); PharmaNinja.Hub.flush(); PharmaNinja.Hub.lookup("asha@example.com"); true');
       await sleep(1200);
       const during = await c.eval('PharmaNinja.Screens.current');
       await c.eval('PharmaNinja.Round.end("time"); true');
@@ -89,7 +89,7 @@ async function flowOffline(sql, cookie) {
     };
 
     // 1) disconnect in the middle of a round
-    await c.eval(`PharmaNinja.Round.start({ displayName: 'Midround', visitorId: 'E2E-0001', badgeConfirmed: true }, 'quality'); true`);
+    await c.eval(`PharmaNinja.Round.start({ displayName: 'Midround', email: 'asha@example.com', emailConfirmed: true }, 'quality'); true`);
     await c.waitFor('PharmaNinja.Screens.current === "hud"');
     await sleep(800);
     await stopServer();
@@ -134,8 +134,8 @@ async function flowOffline(sql, cookie) {
     check('re-sending the same rounds: acknowledged, no duplicates', acked === 4 && after === 4 && dupes === 0, { acked, roundsInHub: after, duplicates: dupes });
     const mismatched = await sql`select r.round_id from hub.game_rounds r left join hub.game_plays p on p.round_id = r.round_id
       group by r.round_id, r.questions having count(p.*) <> r.questions`;
-    const [{ n: confirmed }] = await sql`select count(*)::int as n from hub.game_rounds where badge_id = 'E2E-0001' and badge_confirmed`;
-    check('every answer stored, rounds matched to the badge', mismatched.length === 0 && confirmed === 4);
+    const [{ n: confirmed }] = await sql`select count(*)::int as n from hub.game_rounds where player_email = 'asha@example.com' and email_confirmed`;
+    check('every answer stored, rounds matched to the email', mismatched.length === 0 && confirmed === 4);
     check('no page errors', pageErrors(c).length === 0, pageErrors(c));
   } finally { await c.close(); }
 }
@@ -146,7 +146,7 @@ async function flowRegister(sql, cookie) {
   const c = await browser('register', 9342, cookie);
   const music = () => c.eval('!!(PharmaNinja.Sound.ctx && PharmaNinja.Sound.ctx.state === "running" && PharmaNinja.Sound.timer)');
   const typeIn = (field, text) => c.eval(`document.getElementById("${field}").click(); ${JSON.stringify(text)}.split("").forEach(ch => PharmaNinja.NameEntry.type(ch)); true`);
-  const reset = () => c.eval('PharmaNinja.NameEntry.vid = ""; PharmaNinja.NameEntry.name = ""; PharmaNinja.NameEntry.badgeChanged(); PharmaNinja.NameEntry.paint(); true');
+  const reset = () => c.eval('PharmaNinja.NameEntry.email = ""; PharmaNinja.NameEntry.name = ""; PharmaNinja.NameEntry.emailChanged(); PharmaNinja.NameEntry.paint(); true');
   const frameDoc = `document.getElementById('reg-frame').contentDocument`;
   const fill = (name, val) => c.eval(`(() => { const d = ${frameDoc}, w = d.defaultView, el = d.querySelector('[name=${name}]');
     w.Object.getOwnPropertyDescriptor(w.HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(val)});
@@ -157,53 +157,54 @@ async function flowRegister(sql, cookie) {
     await c.eval('PharmaNinja.Sound.unlock(); true'); await sleep(400);
     await c.eval('document.getElementById("cta-play").click(); true');
     await c.waitFor('PharmaNinja.Screens.current === "name"');
-    check('the cursor starts in the Badge ID field (shown first)', (await c.eval('PharmaNinja.NameEntry.field')) === 'vid');
+    check('the cursor starts in the Email field (shown first)', (await c.eval('PharmaNinja.NameEntry.field')) === 'email');
     await typeIn('f-name', 'Guest');
-    check('badge required: Choose domain disabled with only a name', await c.eval('document.getElementById("name-go").disabled'));
+    check('email required: Choose domain disabled with only a name', await c.eval('document.getElementById("name-go").disabled'));
     await reset();
 
-    // a partial badge (does not match the badge rule yet) shows nothing
-    await typeIn('f-vid', 'E2E');
+    // a partial email shows nothing
+    await typeIn('f-email', 'ravi.menon@exam');
     await sleep(2500);
-    check('partial badge: no prompt, nothing revealed', !(await c.eval('document.getElementById("name-confirm").classList.contains("on")')));
+    check('partial email: no prompt, nothing revealed', !(await c.eval('document.getElementById("name-confirm").classList.contains("on")')));
     await reset();
 
-    // a complete unregistered badge is checked by itself, without tapping Choose domain
-    await typeIn('f-vid', 'e2e-new1');
+    // a complete unregistered email (typed with the @ and .com keys) is checked by itself, without tapping Choose domain
+    await c.eval(`(() => { const k = PharmaNinja.NameEntry; document.getElementById("f-email").click(); "Ravi.Menon".split("").forEach(ch => k.type(ch));
+      k.key("@"); "example".split("").forEach(ch => k.type(ch)); k.key(".COM"); return true; })()`);
     await c.waitFor('document.getElementById("name-confirm").classList.contains("on")', 8000);
     const ask = await c.eval('[document.getElementById("nc-text").textContent, document.getElementById("nc-yes").textContent, document.getElementById("nc-no").textContent]');
-    check('unregistered badge, checked as typed: asks before opening the form',
-      ask[0] === 'E2E-NEW1 isn’t registered yet.' && ask[1] === 'Register now' && ask[2] === 'Fix my badge ID'
+    check('unregistered email, checked as typed: asks before opening the form',
+      ask[0] === 'This email isn’t registered yet.' && ask[1] === 'Register now' && ask[2] === 'Fix my email'
       && !(await c.eval('document.getElementById("s-reg").classList.contains("on")')), ask);
     await c.eval('document.getElementById("nc-no").click(); true');
-    check('"Fix my badge ID" keeps the typed badge for correcting', (await c.eval('[PharmaNinja.NameEntry.vid, PharmaNinja.NameEntry.field]')).join() === 'E2E-NEW1,vid');
-    await c.eval('PharmaNinja.NameEntry.key("DEL"); PharmaNinja.NameEntry.type("1"); true');   // retype the last character → checked again
+    check('"Fix my email" keeps the typed email for correcting', (await c.eval('[PharmaNinja.NameEntry.email, PharmaNinja.NameEntry.field]')).join() === 'ravi.menon@example.com,email');
+    await c.eval('PharmaNinja.NameEntry.key("DEL"); PharmaNinja.NameEntry.type("m"); true');   // retype the last character → checked again
     await c.waitFor('document.getElementById("name-confirm").classList.contains("on")', 8000);
     await c.eval('document.getElementById("nc-yes").click(); true');   // Register now
     await c.waitFor('document.getElementById("s-reg").classList.contains("on")', 8000);
     await c.waitFor(`!!(${frameDoc} && ${frameDoc}.querySelector('[name=fullName]'))`, 15000);
     await sleep(2000);   // form scripts ready
-    check('unregistered badge opens the form with the badge filled in', (await c.eval(`${frameDoc}.querySelector('[name=badgeId]').value`)) === 'E2E-NEW1');
+    check('Register now opens the form with the email filled in', (await c.eval(`${frameDoc}.querySelector('[name=email]').value`)) === 'ravi.menon@example.com');
     check('autofill is off on the in-game form', (await c.eval(`[...${frameDoc}.querySelectorAll('input[type=text],input[type=email],input[type=tel],input[type=url]')].every(i => i.autocomplete === 'off')`)));
-    for (const [k, v] of [['fullName', 'Dr. Ravi Menon'], ['company', 'Example Biologics'], ['jobTitle', 'Head of QA'], ['email', 'ravi@example.com']]) await fill(k, v);
+    for (const [k, v] of [['fullName', 'Dr. Ravi Menon'], ['company', 'Example Biologics'], ['jobTitle', 'Head of QA']]) await fill(k, v);
     await c.eval(`${frameDoc}.querySelector('[name=consent]').click(); true`);
     await sleep(300);
     check('music keeps playing while the form is open', await music());
     await c.eval(`${frameDoc}.querySelector('button[type=submit]').click(); true`);
     await c.waitFor('!document.getElementById("s-reg").classList.contains("on")', 10000);
-    const back = await c.eval('[PharmaNinja.NameEntry.vid, PharmaNinja.NameEntry.name, PharmaNinja.NameEntry.confirmed]');
-    check('saved: back in the game with the badge confirmed and the first name filled in', back[0] === 'E2E-NEW1' && back[1] === 'Ravi' && back[2] === true, back);
+    const back = await c.eval('[PharmaNinja.NameEntry.email, PharmaNinja.NameEntry.name, PharmaNinja.NameEntry.confirmed]');
+    check('saved: back in the game with the email confirmed and the first name filled in', back[0] === 'ravi.menon@example.com' && back[1] === 'Ravi' && back[2] === true, back);
     check('music still playing after the form', await music());
-    const [v] = await sql`select full_name, registration_mode from hub.visitors where badge_id = 'E2E-NEW1'`;
+    const [v] = await sql`select full_name, registration_mode from hub.visitors where email = 'ravi.menon@example.com'`;
     check('the visitor is registered in the Hub', v?.full_name === 'Dr. Ravi Menon' && v?.registration_mode === 'self');
     await c.eval('document.getElementById("name-go").click(); true');
     check('Choose domain then goes to the domain picker', await c.waitFor('PharmaNinja.Screens.current === "picker"', 5000).catch(() => false));
 
     await c.eval('document.getElementById("pk-back").click(); true');
     await c.waitFor('PharmaNinja.Screens.current === "name"');
-    await reset(); await typeIn('f-vid', 'E2E-0001');
+    await reset(); await typeIn('f-email', 'asha@example.com');
     await c.waitFor('document.getElementById("name-confirm").classList.contains("on")', 8000);
-    check('a registered badge gets the welcome by itself, not the form',
+    check('a registered email gets the welcome by itself, not the form',
       (await c.eval('document.getElementById("nc-text").textContent')) === 'Welcome, Asha — is this you?' && !(await c.eval('document.getElementById("s-reg").classList.contains("on")')));
     check('no page errors', pageErrors(c).length === 0, pageErrors(c));
   } finally { await c.close(); }
@@ -219,11 +220,11 @@ async function flowStandalone() {
     await c.eval('document.getElementById("cta-play").click(); true');
     await c.waitFor('PharmaNinja.Screens.current === "name"');
     await c.eval('document.getElementById("f-name").click(); "Solo".split("").forEach(ch => PharmaNinja.NameEntry.type(ch)); true');
-    check('badge required here too', await c.eval('document.getElementById("name-go").disabled'));
-    await c.eval('document.getElementById("f-vid").click(); "ab12".split("").forEach(ch => PharmaNinja.NameEntry.type(ch)); document.getElementById("name-go").click(); true');
+    check('email required here too', await c.eval('document.getElementById("name-go").disabled'));
+    await c.eval('document.getElementById("f-email").click(); "solo@example.com".split("").forEach(ch => PharmaNinja.NameEntry.type(ch)); document.getElementById("name-go").click(); true');
     await sleep(500);
     const p = await c.eval('PharmaNinja.Screens.player');
-    check('plays with the badge kept unconfirmed', (await c.eval('PharmaNinja.Screens.current')) === 'picker' && p.visitorId === 'AB12' && p.badgeConfirmed === false);
+    check('plays with the email kept unconfirmed', (await c.eval('PharmaNinja.Screens.current')) === 'picker' && p.email === 'solo@example.com' && p.emailConfirmed === false);
     const net = c.requests().filter((u) => !u.startsWith('file:') && !u.startsWith('data:'));
     check('zero network requests', net.length === 0, net);
     check('no page errors', c.errors().length === 0, c.errors());
@@ -243,8 +244,8 @@ try {
   await setHubApiPassword(sql, 'e2e-app');
   await sql`insert into hub.app_users (email, display_name, role, password_hash) values (${GAME.email}, 'E2E game screen', 'game', ${await hash(GAME.password)})`;
   const [{ v }] = await sql`select consent_version as v from hub.settings`;
-  await sql`insert into hub.visitors (badge_id, full_name, company, job_title, email, consent_given, consent_version, consent_at, registration_mode)
-            values ('E2E-0001', 'Dr. Asha Rao', 'Example Pharma', 'VP Clinical', 'asha@example.com', true, ${v}, now(), 'self')`;
+  await sql`insert into hub.visitors (full_name, company, job_title, email, consent_given, consent_version, consent_at, registration_mode)
+            values ('Dr. Asha Rao', 'Example Pharma', 'VP Clinical', 'asha@example.com', true, ${v}, now(), 'self')`;
 
   execSync('python3 pharma-ninja-src/build.py', { cwd: ROOT, stdio: 'ignore' });   // standalone file for flow C
   if (!process.env.SKIP_BUILD) { console.log('Building the Hub (production)…'); execSync('npm run -s build', { cwd: ROOT, stdio: 'ignore', env: { ...process.env, NEXT_TELEMETRY_DISABLED: '1' } }); }

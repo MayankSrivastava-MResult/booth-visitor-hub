@@ -17,7 +17,7 @@
  *                     sync status, leaderboard reset / entry removal
  *  11. Boot & recovery
  *  12. Hub sync     — only when served by the Booth Visitor Hub at /play, using
- *                     the Hub sign-in of this browser: content refresh, badge
+ *                     the Hub sign-in of this browser: content refresh, email
  *                     lookup, round outbox, offline service worker. Standalone
  *                     (file://) the game behaves exactly as Milestone 1.
  * ===================================================================== */
@@ -44,10 +44,10 @@ var DEFAULT_SETTINGS = {
   pin: '2026',
   maxPixelRatio: 2,       // device-pixel-ratio cap for performance
   leaderboardResetAt: 0,  // manual reset timestamp ("Reset today's leaderboard" in admin)
-  contentEtag: '', contentVersion: '', lastContentAt: 0, lastSyncAt: 0,  // Booth Hub sync bookkeeping (section 12)
-  badgePattern: '^[A-Z0-9-]{4,20}$'   // badge ID rule, refreshed from the Hub's Settings with the questions
+  contentEtag: '', contentVersion: '', lastContentAt: 0, lastSyncAt: 0   // Booth Hub sync bookkeeping (section 12)
 };
-var NAME_MAX = 16, VID_MAX = 24;
+var NAME_MAX = 16, EMAIL_MAX = 80;
+var EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/;   // a complete-looking email address
 var BASE_POINTS = 100, MIN_POINTS = 20;
 var reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -897,7 +897,7 @@ var Round = {
   record: function (cur, chosenIdx, ms) {
     var st = this.st, q = cur.q;
     st.answers.push({ q: q, chosen: chosenIdx, result: cur.result, ms: ms });
-    Store.data.plays.push({ ts: Date.now(), roundId: st.id, displayName: st.player.displayName, visitorId: st.player.visitorId || '',
+    Store.data.plays.push({ ts: Date.now(), roundId: st.id, displayName: st.player.displayName, email: st.player.email || '',
       domainId: st.domain.id, questionId: q.id, result: cur.result, msToSlice: ms == null ? '' : ms });
   },
   tick: function (dt) {
@@ -913,8 +913,8 @@ var Round = {
     if (st.cur && !st.cur.resolved) { st.cur.resolved = true; st.cur.result = 'missed'; this.record(st.cur, -1, null); }
     Stage.dismissOthers(); Sound.play('end'); Hud.banner(reason);
     var correct = st.answers.filter(function (a) { return a.result === 'correct'; }).length;
-    var round = { roundId: st.id, ts: Date.now(), date: istDate(Date.now()), displayName: st.player.displayName, visitorId: st.player.visitorId || '',
-      badgeConfirmed: !!st.player.badgeConfirmed,
+    var round = { roundId: st.id, ts: Date.now(), date: istDate(Date.now()), displayName: st.player.displayName, email: st.player.email || '',
+      emailConfirmed: !!st.player.emailConfirmed,
       domainId: st.domain.id, score: st.score, questions: st.answers.length, correct: correct, longestStreak: st.longest, endReason: reason };
     Store.data.rounds.push(round);
     Hub.roundFinished(round);   // saves rounds + plays + outbox entry together, then syncs in the background
@@ -990,28 +990,28 @@ var Screens = {
 };
 
 /* Name entry with the built-in keyboard (physical keyboard also works for laptop testing).
-   Fields: Badge ID (required, stored uppercased) then Display name. When the Hub is reachable,
-   a typed badge is looked up in the background; if it is registered the player sees
-   "Welcome, <first name> — is this you?". Yes prefills the display name and marks the badge
-   confirmed; No clears the badge. On "Choose domain" an unconfirmed badge is checked: not
-   registered → the registration form opens over the game (Register). If the Hub cannot be
-   reached the player carries on and the badge is stored unconfirmed: the game never blocks
-   on the network. */
+   Fields: Email (required, stored lower-case; it is the visitor's identity) then Display name.
+   Once the typed email looks complete and typing pauses, it is checked with the Hub by itself:
+   registered → "Welcome, <first name> — is this you?" (Yes prefills the display name and marks
+   the email confirmed; No clears it); not registered → "This email isn't registered yet" with
+   Register now (the form opens over the game, Register below) or Fix my email. There are no
+   suggestions, so other visitors cannot be browsed. If the Hub cannot be reached the player
+   carries on and the email is stored unconfirmed: the game never blocks on the network. */
 var NameEntry = {
-  name: '', vid: '', field: 'name', shift: true, vidLocked: false,
+  name: '', email: '', field: 'name', shift: true, emailLocked: false,
   confirmed: false, offer: null, prompt: null, lookupSeq: 0, lookupTimer: null, checking: false,
   ROWS: [['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'], ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
-    ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', '-'], ['SHIFT', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '.', 'DEL'], ['_', 'SPACE', 'GO']],
+    ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', '-'], ['SHIFT', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '.', 'DEL'], ['@', '.COM', '_', 'SPACE', 'GO']],
   init: function () {
     var self = this, kb = $('kb'), h = '';
-    var params = new URLSearchParams(location.search), urlVid = params.get('visitorId') || params.get('vid');
-    if (urlVid) { this.urlVid = urlVid.slice(0, VID_MAX).toUpperCase(); }
+    var urlEmail = new URLSearchParams(location.search).get('email');
+    if (urlEmail) { this.urlEmail = urlEmail.slice(0, EMAIL_MAX).toLowerCase(); }
     this.ROWS.forEach(function (row) {
       h += '<div class="kb-row">';
       row.forEach(function (k) {
         if (k === 'GO') { h += '<button class="key go" id="name-go">Choose domain</button>'; return; }   // submit lives in the keyboard so it is always in reach
         var cls = k === 'SHIFT' || k === 'DEL' ? 'key wide' : k === 'SPACE' ? 'key space' : 'key';
-        var label = k === 'SHIFT' ? 'Shift' : k === 'DEL' ? 'Delete' : k === 'SPACE' ? 'Space' : k;
+        var label = k === 'SHIFT' ? 'Shift' : k === 'DEL' ? 'Delete' : k === 'SPACE' ? 'Space' : k === '.COM' ? '.com' : k;
         h += '<button class="' + cls + '" data-k="' + k + '"' + (k === 'SHIFT' ? ' id="k-shift"' : '') + '>' + label + '</button>';
       });
       h += '</div>';
@@ -1023,7 +1023,7 @@ var NameEntry = {
       self.key(b.getAttribute('data-k'));
     });
     $('f-name').addEventListener('click', function () { self.field = 'name'; self.paint(); });
-    $('f-vid').addEventListener('click', function () { if (!self.vidLocked) { self.field = 'vid'; self.paint(); } });
+    $('f-email').addEventListener('click', function () { if (!self.emailLocked) { self.field = 'email'; self.paint(); } });
     $('name-go').addEventListener('click', function () { self.submit(); });
     $('nc-yes').addEventListener('click', function () { self.answerOffer(true); });
     $('nc-no').addEventListener('click', function () { self.answerOffer(false); });
@@ -1038,25 +1038,26 @@ var NameEntry = {
   },
   open: function (player) {
     this.name = player ? player.displayName : '';
-    this.vidLocked = !!this.urlVid; this.vid = this.urlVid || (player ? player.visitorId || '' : '');
-    // New player: start in the Badge ID field (shown first). Coming back to change the name: the name field.
-    this.field = (!player && !this.vidLocked) ? 'vid' : 'name';
+    this.emailLocked = !!this.urlEmail; this.email = this.urlEmail || (player ? player.email || '' : '');
+    // New player: start in the Email field (shown first). Coming back to change the name: the name field.
+    this.field = (!player && !this.emailLocked) ? 'email' : 'name';
     this.shift = !this.name; $('name-msg').textContent = '';
     Screens.show('name'); if (Stage) Stage.setMode('off'); Activity.ping(); this.paint();
-    // Returning from the picker keeps a confirmed badge; otherwise look a prefilled badge up.
-    var keep = !!(player && player.badgeConfirmed && player.visitorId === this.vid);
-    this.badgeChanged();
+    // Returning from the picker keeps a confirmed email; otherwise look a prefilled email up.
+    var keep = !!(player && player.emailConfirmed && player.email === this.email);
+    this.emailChanged();
     this.confirmed = keep;
     if (keep) { clearTimeout(this.lookupTimer); this.lookupSeq++; }
   },
   key: function (k) {
     if (k === 'SHIFT') { this.shift = !this.shift; return this.paint(); }
     if (k === 'DEL') {
-      if (this.field === 'name') this.name = this.name.slice(0, -1); else { this.vid = this.vid.slice(0, -1); this.badgeChanged(); }
+      if (this.field === 'name') this.name = this.name.slice(0, -1); else { this.email = this.email.slice(0, -1); this.emailChanged(); }
       if (this.field === 'name' && !this.name) this.shift = true;
       return this.paint();
     }
     if (k === 'SPACE') return this.type(' ');
+    if (k === '.COM') { var self = this; '.com'.split('').forEach(function (c) { self.type(c); }); return; }
     this.type(this.shift ? k.toUpperCase() : k.toLowerCase());
   },
   type: function (ch) {
@@ -1067,37 +1068,34 @@ var NameEntry = {
       this.name += ch;
       this.shift = ch === ' ';
     } else {
-      if (this.vid.length >= VID_MAX || !/^[A-Za-z0-9_-]$/.test(ch)) return;
-      this.vid += ch.toUpperCase();          // badge IDs are uppercase
-      this.badgeChanged();
+      if (this.email.length >= EMAIL_MAX || !/^[A-Za-z0-9._%+@-]$/.test(ch)) return;
+      this.email += ch.toLowerCase();        // emails are stored lower-case
+      this.emailChanged();
     }
     this.paint();
   },
-  /* The badge changed: forget any confirmation. Once the badge looks complete (it matches the
-     badge ID rule from the Hub's Settings) and typing has paused, check it by itself:
+  /* The email changed: forget any confirmation. Once it looks like a complete email address
+     and typing has paused, check it by itself:
        registered     → "Welcome, <first name> — is this you?"   (Yes / No)
-       not registered → "<badge> isn't registered yet."          (Register now / Fix my badge ID)
-     Nothing is shown for a partial badge, and there are no suggestions: badge IDs and names of
-     other visitors can never be browsed from the game screen. */
+       not registered → "This email isn't registered yet."       (Register now / Fix my email)
+     Nothing is shown for a partial email, and there are no suggestions: other visitors'
+     emails and names can never be browsed from the game screen. */
   CHECK_AFTER_MS: 1200,
-  badgeComplete: function (badge) {
-    var re; try { re = new RegExp(Store.settings.badgePattern || '^[A-Z0-9-]{4,20}$'); } catch (e) { re = /^[A-Z0-9-]{4,20}$/; }
-    return re.test(badge);
-  },
-  badgeChanged: function () {
-    var self = this, seq = ++self.lookupSeq, badge = self.vid.trim();
+  emailComplete: function (email) { return EMAIL_RE.test(email) && email.length <= EMAIL_MAX; },
+  emailChanged: function () {
+    var self = this, seq = ++self.lookupSeq, email = self.email.trim();
     self.confirmed = false; self.hidePrompt();
     clearTimeout(self.lookupTimer);
-    if (!Hub.enabled() || !self.badgeComplete(badge)) return;
-    self.lookupTimer = setTimeout(function () { self.check(badge, seq); }, self.CHECK_AFTER_MS);
+    if (!Hub.enabled() || !self.emailComplete(email)) return;
+    self.lookupTimer = setTimeout(function () { self.check(email, seq); }, self.CHECK_AFTER_MS);
   },
-  check: function (badge, seq) {
+  check: function (email, seq) {
     var self = this;
-    return Hub.lookup(badge).then(function (r) {
-      // ignore stale answers (badge edited since, or the player moved on); null = Hub unreachable
+    return Hub.lookup(email).then(function (r) {
+      // ignore stale answers (email edited since, or the player moved on); null = Hub unreachable
       if (seq !== self.lookupSeq || Screens.current !== 'name' || Admin.isOpen || Register.isOpen || !r) return r;
       if (r.found) self.showOffer(r.firstName || '');
-      else self.showRegister(badge);
+      else self.showRegister();
       return r;
     });
   },
@@ -1116,8 +1114,8 @@ var NameEntry = {
     this.offer = this.cleanName(first);
     this.showPrompt('offer', 'Welcome, <b>' + esc(first) + '</b> — is this you?', 'Yes', 'No');
   },
-  showRegister: function (badge) {
-    this.showPrompt('register', '<b>' + esc(badge) + '</b> isn’t registered yet.', 'Register now', 'Fix my badge ID');
+  showRegister: function () {
+    this.showPrompt('register', 'This email isn’t registered yet.', 'Register now', 'Fix my email');
   },
   hidePrompt: function () {
     this.offer = null; this.prompt = null;
@@ -1127,24 +1125,27 @@ var NameEntry = {
     var kind = this.prompt;
     this.hidePrompt();
     if (kind === 'register') {
-      if (yes) Register.open(this.vid.trim());   // the form, over the game, badge prefilled
-      else this.field = 'vid';                    // keep what they typed so they can correct it
+      if (yes) Register.open(this.email.trim());   // the form, over the game, email prefilled
+      else this.field = 'email';                    // keep what they typed so they can correct it
     } else if (yes) {
       if (this.offer && this.offer.length >= 2) this.name = this.offer;   // the player can still change it
       this.confirmed = true; this.field = 'name'; this.shift = false;
     } else {
       this.confirmed = false;
-      if (!this.vidLocked) { this.vid = ''; this.field = 'vid'; }        // wrong badge: let them retype it
+      if (!this.emailLocked) { this.email = ''; this.field = 'email'; }  // not them: let them retype it
     }
     Activity.ping(); this.paint();
   },
   paint: function () {
     var caret = '<span class="caret"></span>';
     $('v-name').innerHTML = this.name ? esc(this.name) + (this.field === 'name' ? caret : '') : (this.field === 'name' ? caret : '') + '<span class="ph">Your name</span>';
-    $('v-vid').innerHTML = this.vid ? esc(this.vid) + (this.field === 'vid' ? caret : '') : (this.field === 'vid' ? caret : '') + '<span class="ph">On your event badge</span>';
-    $('f-name').classList.toggle('active', this.field === 'name'); $('f-vid').classList.toggle('active', this.field === 'vid');
-    $('k-shift').classList.toggle('on', this.shift);
-    $('name-go').disabled = !this.vid.trim() || this.checking;   // the Badge ID is required to play
+    var ve = $('v-email');
+    ve.innerHTML = this.email ? esc(this.email) + (this.field === 'email' ? caret : '') : (this.field === 'email' ? caret : '') + '<span class="ph">you@company.com</span>';
+    var n = this.email.length;   // long addresses: smaller type so the whole address stays visible
+    ve.style.fontSize = n > 40 ? '2.4rem' : n > 32 ? '2.8rem' : n > 24 ? '3.4rem' : '';
+    $('f-name').classList.toggle('active', this.field === 'name'); $('f-email').classList.toggle('active', this.field === 'email');
+    $('k-shift').classList.toggle('on', this.shift && this.field === 'name');   // emails are always lower-case
+    $('name-go').disabled = !this.email.trim() || this.checking;   // the email is required to play
   },
   blocked: function (name) {
     var n = name.toLowerCase().replace(/0/g, 'o').replace(/1/g, 'i').replace(/3/g, 'e').replace(/4/g, 'a').replace(/5/g, 's').replace(/7/g, 't').replace(/\$/g, 's').replace(/@/g, 'a');
@@ -1152,31 +1153,35 @@ var NameEntry = {
     return BLOCKED_WORDS.concat(BLOCKED_PARTS).some(function (b) { return words.indexOf(b) >= 0; }) ||
       BLOCKED_PARTS.some(function (b) { return squashed.indexOf(b) >= 0; });
   },
-  /* "Choose domain". The Badge ID is required. Normally it has already been checked while typing;
+  /* "Choose domain". The email is required. Normally it has already been checked while typing;
      if not (tapped before the check), it is checked now, with the same prompts:
        registered     → "Welcome, <first name> — is this you?"
-       not registered → "<badge> isn't registered yet." (Register now / Fix my badge ID)
-       Hub unreachable, or not signed in → play anyway; the badge is kept unconfirmed for later matching
-     Standalone (no Hub) the typed badge is kept unconfirmed. */
+       not registered → "This email isn't registered yet." (Register now / Fix my email)
+       Hub unreachable, or not signed in → play anyway; the email is kept unconfirmed for later matching
+     Standalone (no Hub) the typed email is kept unconfirmed. */
   submit: function () {
-    var self = this, badge = this.vid.trim();
-    if (!badge) { this.field = 'vid'; this.paint(); $('name-msg').textContent = 'Enter the Badge ID printed on your event badge.'; return; }
+    var self = this, email = this.email.trim();
+    if (!this.emailComplete(email)) {
+      this.field = 'email'; this.paint();
+      $('name-msg').textContent = email ? 'Type your full email address, e.g. name@company.com' : 'Enter your email address to play.';
+      return;
+    }
     if (this.confirmed || !Hub.enabled()) return this.play();
     if (this.checking) return;
     this.checking = true; $('name-msg').textContent = ''; $('name-go').textContent = 'Checking…'; this.paint();
     var seq = ++this.lookupSeq; clearTimeout(this.lookupTimer);
-    Hub.lookup(badge).then(function (r) {
+    Hub.lookup(email).then(function (r) {
       self.checking = false; $('name-go').textContent = 'Choose domain'; self.paint();
       if (seq !== self.lookupSeq || Screens.current !== 'name' || Admin.isOpen) return;
       if (r && r.found) return self.showOffer(r.firstName || '');
-      if (r) return self.showRegister(badge);
+      if (r) return self.showRegister();
       self.play();
     });
   },
-  /* Back from the registration form: badge confirmed, first name as the display name (editable). */
-  registered: function (badge, first) {
+  /* Back from the registration form: email confirmed, first name as the display name (editable). */
+  registered: function (email, first) {
     this.lookupSeq++; clearTimeout(this.lookupTimer);
-    if (badge && !this.vidLocked) this.vid = badge.toUpperCase().slice(0, VID_MAX);
+    if (email && !this.emailLocked) this.email = email.toLowerCase().slice(0, EMAIL_MAX);
     var nice = this.cleanName(first);
     if (nice.length >= 2) this.name = nice;
     this.confirmed = true; this.field = 'name'; this.shift = false;
@@ -1186,16 +1191,16 @@ var NameEntry = {
     var n = this.name.trim();
     if (n.length < 2) { this.field = 'name'; this.paint(); $('name-msg').textContent = 'Type a display name (at least 2 characters).'; return; }
     if (this.blocked(n)) { $('name-msg').textContent = 'That name can’t go on the leaderboard. Try another.'; return; }
-    Screens.player = { displayName: n, visitorId: this.vid.trim(), badgeConfirmed: this.confirmed && !!this.vid.trim() };
+    Screens.player = { displayName: n, email: this.email.trim(), emailConfirmed: this.confirmed && !!this.email.trim() };
     Picker.open(Screens.player);
   }
 };
 
-/* Registration inside the game (Hub mode only). An unregistered badge opens the Hub's
-   public form (/register?kiosk=1) over the name screen, badge prefilled. The game page
+/* Registration inside the game (Hub mode only). An unregistered email opens the Hub's
+   public form (/register?kiosk=1) over the name screen, email prefilled. The game page
    stays open underneath, so the music keeps playing. When the form is saved it sends
-   {type:'pn-registered', badgeId, firstName} (same site only) and the player is back on
-   the name screen with the badge confirmed. "Back to the game" closes it at any time,
+   {type:'pn-registered', email, firstName} (same site only) and the player is back on
+   the name screen with the email confirmed. "Back to the game" closes it at any time,
    including when the form cannot load (offline). Nothing is stored by the game here. */
 var Register = {
   isOpen: false, last: 0,
@@ -1205,9 +1210,9 @@ var Register = {
     $('reg-back').addEventListener('click', function () { self.close(); });
     window.addEventListener('message', function (e) { self.onMessage(e); });
   },
-  open: function (badge) {
+  open: function (email) {
     this.isOpen = true; this.last = Date.now();
-    $('reg-frame').src = '/register?kiosk=1&badge=' + encodeURIComponent(badge);
+    $('reg-frame').src = '/register?kiosk=1&email=' + encodeURIComponent(email);
     $('s-reg').classList.add('on');
   },
   close: function () {
@@ -1221,7 +1226,7 @@ var Register = {
     this.last = Date.now(); Activity.ping();
     if (e.data.type === 'pn-registered') {
       var self = this;
-      NameEntry.registered(String(e.data.badgeId || ''), String(e.data.firstName || ''));
+      NameEntry.registered(String(e.data.email || ''), String(e.data.firstName || ''));
       setTimeout(function () { self.close(); }, 900);   // let "Registered!" show for a moment
     }
   }
@@ -1481,7 +1486,7 @@ window.addEventListener('unhandledrejection', function (e) { recover(e.reason); 
  *   - Content: fetched at start, every 5 minutes and on "Refresh content now";
  *     kept in the Store, so offline the last content (or the seed) is used.
  *     A reply with no playable domain is ignored (keeps the current questions).
- *   - Badge lookup: one short request (3 s timeout); any failure = unconfirmed.
+ *   - Email lookup: one short request (3 s timeout); any failure = unconfirmed.
  *   - Rounds: Round.end → roundFinished() saves the round, its plays and an
  *     outbox entry in ONE IndexedDB transaction, then flush() sends the outbox
  *     until the Hub acknowledges each round id (retrying with back-off). The
@@ -1542,7 +1547,6 @@ var Hub = {
         return res.json().then(function (c) {
           if (!self.usable(c)) { self.status.content = 'Hub has no playable questions yet: keeping the current ones'; return false; }
           Store.data.domains = c.domains; Store.data.questions = c.questions;
-          if (typeof c.badgePattern === 'string') s.badgePattern = c.badgePattern;   // badge ID rule from Settings
           s.contentEtag = etag; s.contentVersion = c.version || ''; s.lastContentAt = Date.now();
           self.status.content = 'updated';
           return Store.saveMany(['domains', 'questions', 'settings']).then(function () { return true; });
@@ -1552,9 +1556,9 @@ var Hub = {
   },
 
   /* {found, firstName} or null (offline, slow, refused, or not connected). */
-  lookup: function (badge) {
+  lookup: function (email) {
     if (!this.enabled()) return Promise.resolve(null);
-    return this.request('POST', '/api/game/lookup', { badgeId: badge }, 3000)
+    return this.request('POST', '/api/game/lookup', { email: email }, 3000)
       .then(function (res) { return res.ok ? res.json() : null; })
       .then(function (r) { return r && typeof r.found === 'boolean' ? r : null; })
       .catch(function () { return null; });

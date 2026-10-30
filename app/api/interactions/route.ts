@@ -1,9 +1,9 @@
 /* POST /api/interactions: log a conversation, podcast guest, demo or note (staff, admin).
  * Body by type:
- *   conversation {badgeId, metBy, problemStatement?, domainTags[], interestLevel, nextStep?, followUpOwner?, followUpDate?}
- *   podcast      {badgeId, podcastTopic, notes?, podcastConsentSigned}
- *   demo         {badgeId, demoName, notes?}
- *   other        {badgeId, notes}
+ *   conversation {visitorEmail, metBy, problemStatement?, domainTags[], interestLevel, nextStep?, followUpOwner?, followUpDate?}
+ *   podcast      {visitorEmail, podcastTopic, notes?, podcastConsentSigned}
+ *   demo         {visitorEmail, demoName, notes?}
+ *   other        {visitorEmail, notes}
  * 201 {id} | 404 {error, notRegistered:true} | 400 {error, fields} */
 import type { NextRequest } from 'next/server';
 import { requireStaffApi } from '@/lib/api-auth';
@@ -24,6 +24,6 @@ export async function POST(req: NextRequest) {
   if (listErr) return error(400, 'Please check the highlighted fields.', listErr);
 
   const result = await createInteraction(g.user, parsed.data);
-  if (!result.ok) return json({ error: 'This badge is not registered yet.', notRegistered: true }, 404);
+  if (!result.ok) return json({ error: 'This visitor is not registered yet.', notRegistered: true }, 404);
   return json({ id: result.id }, 201);
 }

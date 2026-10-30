@@ -14,7 +14,7 @@ export default async function ExportPage() {
       <div className="card">
         <a className="btn block" href="/api/admin/export">Download everything (.xlsx)</a>
         <p className="small muted">Sheets: Visitors, Conversations, Podcast guests, Demos, Other notes, Game rounds, Game plays,
-          Unmatched badge IDs. Times are in IST.</p>
+          Unmatched emails. Times are in IST.</p>
       </div>
       <form className="card" action="/api/admin/export" method="get">
         <h2>Only some days</h2>

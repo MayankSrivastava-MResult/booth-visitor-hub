@@ -31,7 +31,7 @@ export default async function PodcastPage({ searchParams }: { searchParams: Prom
             {guests.map((g) => (
               <div key={g.id} className="stack" style={{ gap: 4 }}>
                 <div className="spread">
-                  <Link href={`/visitors/${encodeURIComponent(g.badgeId)}`} className="item-title">{g.fullName}</Link>
+                  <Link href={`/visitors/${encodeURIComponent(g.email)}`} className="item-title">{g.fullName}</Link>
                   <span className="small muted">{formatIst(g.at)}</span>
                 </div>
                 <span>{g.jobTitle} · {g.company}</span>

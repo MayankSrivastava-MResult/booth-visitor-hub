@@ -1,5 +1,5 @@
 /* Milestone B API tests: game content admin (CRUD, CSV import/export, TEST
- * delete), game screen accounts, and the game API (content, badge lookup,
+ * delete), game screen accounts, and the game API (content, email lookup,
  * round sync) used by Pharma Ninja with a normal sign-in. */
 import Papa from 'papaparse';
 import postgres from 'postgres';
@@ -20,7 +20,7 @@ import * as roundsRoute from '@/app/api/game/rounds/route';
 import * as interactionsRoute from '@/app/api/interactions/route';
 import * as loginRoute from '@/app/api/auth/login/route';
 import * as visitorsRoute from '@/app/api/visitors/route';
-import * as summaryRoute from '@/app/api/visitors/[badge]/summary/route';
+import * as summaryRoute from '@/app/api/visitors/[email]/summary/route';
 import { rawSql } from '@/lib/db';
 import { hashPassword } from '@/lib/password';
 import { CSV_HEADER } from '@/lib/questions';
@@ -35,9 +35,9 @@ beforeAll(async () => {
               on conflict (email) do nothing`;
   admin = await login('mayank.srivastava@mresult.com', 'admin-pass-123');
   staff = await login('gstaff@mresult.com', 'staff-pass-123');
-  // a registered visitor for the badge lookup
-  await owner`insert into hub.visitors (badge_id, full_name, company, job_title, email, consent_given, consent_version, consent_at, registration_mode)
-              values ('GAME-0001', 'Prof. Élodie Martin', 'Example Bio', 'CSO', 'e@example.com', true, 1, now(), 'self') on conflict do nothing`;
+  // a registered visitor for the email lookup
+  await owner`insert into hub.visitors (full_name, company, job_title, email, consent_given, consent_version, consent_at, registration_mode)
+              values ('Prof. Élodie Martin', 'Example Bio', 'CSO', 'elodie@example.com', true, 1, now(), 'self') on conflict do nothing`;
 });
 afterAll(async () => { await owner.end(); await rawSql().end(); });
 
@@ -148,8 +148,8 @@ describe('game screen accounts and the game API', () => {
   });
   it('a game account is refused by every Hub endpoint (403)', async () => {
     expect((await visitorsRoute.GET(req('/api/visitors', { cookie: game }))).status).toBe(403);
-    expect((await summaryRoute.GET(req('/api/visitors/GAME-0001/summary', { cookie: game }), params({ badge: 'GAME-0001' }))).status).toBe(403);
-    expect((await interactionsRoute.POST(req('/api/interactions', { method: 'POST', cookie: game, body: { type: 'other', badgeId: 'GAME-0001', notes: 'x' } }))).status).toBe(403);
+    expect((await summaryRoute.GET(req('/api/visitors/elodie@example.com/summary', { cookie: game }), params({ email: 'elodie@example.com' }))).status).toBe(403);
+    expect((await interactionsRoute.POST(req('/api/interactions', { method: 'POST', cookie: game, body: { type: 'other', visitorEmail: 'elodie@example.com', notes: 'x' } }))).status).toBe(403);
     expect((await exportRoute.GET(req('/api/admin/export', { cookie: game }))).status).toBe(403);
     expect((await questionsRoute.GET(req('/api/admin/questions', { cookie: game }))).status).toBe(403);
     expect((await usersRoute.GET(req('/api/admin/users', { cookie: game }))).status).toBe(403);
@@ -161,36 +161,34 @@ describe('game screen accounts and the game API', () => {
     const c = await r.json();
     expect(c.domains.map((d: { id: string }) => d.id)).toContain('regops');
     expect(c.questions.find((q: { id: string }) => q.id === 'ro-02')).toMatchObject({ domainId: 'regops', correctIndex: 0, options: ['FDA', 'EMA', 'PMDA', 'CDSCO'] });
-    const [{ pattern }] = await owner`select badge_pattern as pattern from hub.settings`;
-    expect(c.badgePattern).toBe(pattern);   // the game knows when a typed badge is complete
     const etag = r.headers.get('etag')!;
     expect((await contentRoute.GET(req('/api/game/content', { cookie: game, headers: { 'if-none-match': etag } }))).status).toBe(304);
     // staff and admin can run the game too
     expect((await contentRoute.GET(req('/api/game/content', { cookie: staff }))).status).toBe(200);
   });
-  it('badge lookup returns ONLY {found, firstName}', async () => {
-    const r = await lookupRoute.POST(req('/api/game/lookup', { method: 'POST', cookie: game, body: { badgeId: ' game-0001 ' } }));
+  it('email lookup returns ONLY {found, firstName}', async () => {
+    const r = await lookupRoute.POST(req('/api/game/lookup', { method: 'POST', cookie: game, body: { email: ' Elodie@Example.com ' } }));
     expect(await r.json()).toEqual({ found: true, firstName: 'Élodie' });
-    const n = await lookupRoute.POST(req('/api/game/lookup', { method: 'POST', cookie: game, body: { badgeId: 'NOPE-1234' } }));
+    const n = await lookupRoute.POST(req('/api/game/lookup', { method: 'POST', cookie: game, body: { email: 'nope-1234@example.com' } }));
     expect(await n.json()).toEqual({ found: false, firstName: null });
-    const bad = await lookupRoute.POST(req('/api/game/lookup', { method: 'POST', cookie: game, body: { badgeId: '<script>' } }));
+    const bad = await lookupRoute.POST(req('/api/game/lookup', { method: 'POST', cookie: game, body: { email: '<script>' } }));
     expect(await bad.json()).toEqual({ found: false, firstName: null });
-    expect((await lookupRoute.POST(req('/api/game/lookup', { method: 'POST', body: { badgeId: 'GAME-0001' } }))).status).toBe(401);
+    expect((await lookupRoute.POST(req('/api/game/lookup', { method: 'POST', body: { email: 'elodie@example.com' } }))).status).toBe(401);
   });
   it('game POSTs from another site are blocked (CSRF)', async () => {
-    expect((await lookupRoute.POST(req('/api/game/lookup', { method: 'POST', cookie: game, origin: 'https://evil.example', body: { badgeId: 'GAME-0001' } }))).status).toBe(403);
+    expect((await lookupRoute.POST(req('/api/game/lookup', { method: 'POST', cookie: game, origin: 'https://evil.example', body: { email: 'elodie@example.com' } }))).status).toBe(403);
     expect((await roundsRoute.POST(req('/api/game/rounds', { method: 'POST', cookie: game, origin: null, body: { items: [] } }))).status).toBe(403);
   });
-  it('badge lookup is rate-limited per account', async () => {
+  it('email lookup is rate-limited per account', async () => {
     await owner`insert into hub.app_users (email, display_name, role, password_hash) values ('rate@mresult.com', 'Rate test', 'game', ${await hashPassword('rate-pass-123')})`;
     const k = await login('rate@mresult.com', 'rate-pass-123');
     const statuses: number[] = [];
-    for (let i = 0; i < 62; i++) statuses.push((await lookupRoute.POST(req('/api/game/lookup', { method: 'POST', cookie: k, ip: `10.9.${i}.1`, body: { badgeId: `TRY-${1000 + i}` } }))).status);
+    for (let i = 0; i < 62; i++) statuses.push((await lookupRoute.POST(req('/api/game/lookup', { method: 'POST', cookie: k, ip: `10.9.${i}.1`, body: { email: `try-${1000 + i}@example.com` } }))).status);
     expect(statuses.filter((s) => s === 200)).toHaveLength(60);
     expect(statuses.slice(60)).toEqual([429, 429]);
   });
   it('round sync is idempotent and records the account that sent it', async () => {
-    const item = { round: { roundId: 'syncr0001', ts: Date.now(), date: '2026-11-02', displayName: 'Elodie', visitorId: 'GAME-0001', badgeConfirmed: true,
+    const item = { round: { roundId: 'syncr0001', ts: Date.now(), date: '2026-11-02', displayName: 'Elodie', email: 'Elodie@Example.com', emailConfirmed: true,
       domainId: 'regops', score: 140, questions: 2, correct: 2, longestStreak: 2, endReason: 'cleared' },
       plays: [{ ts: Date.now(), questionId: 'ro-01', result: 'correct', msToSlice: 1500 }, { ts: Date.now(), questionId: 'ro-02', result: 'correct', msToSlice: 2100 }] };
     const broken = { round: { ...item.round, roundId: 'syncr0002', score: -5 }, plays: [] };
@@ -202,8 +200,16 @@ describe('game screen accounts and the game API', () => {
     }
     const [{ n }] = await owner`select count(*)::int as n from hub.game_plays where round_id = 'syncr0001'`;
     expect(n).toBe(2);
-    const [g] = await owner`select badge_id, badge_confirmed, created_by from hub.game_rounds where round_id = 'syncr0001'`;
-    expect(g).toEqual({ badge_id: 'GAME-0001', badge_confirmed: true, created_by: gameId });
+    const [g] = await owner`select player_email, email_confirmed, created_by from hub.game_rounds where round_id = 'syncr0001'`;
+    expect(g).toEqual({ player_email: 'elodie@example.com', email_confirmed: true, created_by: gameId });
+  });
+  it('rounds saved on a screen before the switch to email (old field names) still sync', async () => {
+    const old = { round: { roundId: 'legacy0001', ts: Date.now(), date: '2026-11-02', displayName: 'Old', visitorId: 'Elodie@example.com', badgeConfirmed: true,
+      domainId: 'regops', score: 10, questions: 1, correct: 1, longestStreak: 1, endReason: 'time' }, plays: [] };
+    const r = await roundsRoute.POST(req('/api/game/rounds', { method: 'POST', cookie: game, body: { items: [old] } }));
+    expect((await r.json()).acked).toEqual(['legacy0001']);
+    const [g] = await owner`select player_email, email_confirmed from hub.game_rounds where round_id = 'legacy0001'`;
+    expect(g).toEqual({ player_email: 'elodie@example.com', email_confirmed: true });
   });
   it('removing the game account signs out every screen at once', async () => {
     expect((await userRoute.PATCH(req(`/api/admin/users/${gameId}`, { method: 'PATCH', cookie: admin, body: { active: false } }), params({ id: gameId }))).status).toBe(200);
@@ -216,7 +222,7 @@ describe('delete TEST questions', () => {
   it('needs the typed confirmation, then removes only TEST questions', async () => {
     // a play on a TEST question, recorded before the delete
     await owner`select hub.game_ingest((select id from hub.app_users where email = 'mayank.srivastava@mresult.com'), ${owner.json([{ round: { roundId: 'deltest01', ts: Date.now(), date: '2026-11-02', displayName: 'X',
-      visitorId: '', domainId: 'clinical', score: 0, questions: 1, correct: 0, longestStreak: 0, endReason: 'time' },
+      email: '', domainId: 'clinical', score: 0, questions: 1, correct: 0, longestStreak: 0, endReason: 'time' },
       plays: [{ ts: Date.now(), questionId: 'ct-03', result: 'missed', msToSlice: '' }] }] as never)})`;
     const before = await (await deleteTestRoute.GET(req('/api/admin/questions/delete-test', { cookie: admin }))).json();
     expect(before.count).toBe(45);
