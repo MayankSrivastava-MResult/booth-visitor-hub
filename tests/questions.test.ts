@@ -25,15 +25,13 @@ const hubOk = (q: QuestionInput) => questionErrors(q, ids).length === 0;
 
 const base = SEED.find((q) => q.id === 'qc-02')!;   // a valid 5-option question
 const variants: [string, Partial<QuestionInput>][] = [
-  ['text exactly 120', { questionText: 'x'.repeat(120) }],
-  ['text 121', { questionText: 'x'.repeat(121) }],
+  ['text exactly 170', { questionText: 'x'.repeat(170) }],
+  ['text 171', { questionText: 'x'.repeat(171) }],
   ['3 options', { options: ['A', 'B', 'C'], correctIndex: 0 }],
   ['6 options', { options: ['A', 'B', 'C', 'D', 'E', 'F'] }],
-  ['option exactly 28 chars', { options: ['x'.repeat(28), 'B', 'C', 'D'], correctIndex: 0 }],
-  ['option 29 chars', { options: ['x'.repeat(29), 'B', 'C', 'D'], correctIndex: 0 }],
-  ['option 4 words', { options: ['one two three four', 'B', 'C', 'D'], correctIndex: 0 }],
-  ['option 5 words', { options: ['one two three four five', 'B', 'C', 'D'], correctIndex: 0 }],
-  ['option with surrounding spaces, 4 words', { options: ['  a b c d  ', 'B', 'C', 'D'], correctIndex: 0 }],
+  ['option exactly 100 chars', { options: ['x'.repeat(100), 'B', 'C', 'D'], correctIndex: 0 }],
+  ['option 101 chars', { options: ['x'.repeat(101), 'B', 'C', 'D'], correctIndex: 0 }],
+  ['option of 12 words (no word limit)', { options: ['one two three four five six seven eight nine ten eleven twelve', 'B', 'C', 'D'], correctIndex: 0 }],
   ['duplicate options', { options: ['A', 'A', 'C', 'D'], correctIndex: 0 }],
   ['correctIndex -1', { correctIndex: -1 }],
   ['correctIndex = length', { correctIndex: 5 }],

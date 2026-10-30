@@ -37,6 +37,14 @@ Requires Python 3 and Node.js.
 Never edit a built file by hand. Change `src/` and rebuild. The build fails if any seed question breaks the
 rules, or if the game's code contains any absolute web address (the game only talks to the site it was opened from).
 
+## A round
+One domain, 75 seconds, 3 lives. Questions climb a difficulty ladder drawn at random from the domain: 5 Easy, then
+5 Moderate, then Difficult for the rest of the round (a level that runs short is filled from the next one). A correct
+answer scores up to 100 points for speed, ×1.5 for Moderate and ×2 for Difficult, and ×1.5 / ×2 more for a streak of
+4 / 6 in a row. So each domain needs at least 5 Easy and 5 Moderate questions, and plenty of Difficult ones.
+Pills fall in 6.0 s at the start of a round and 3.2 s at the end, divided by the Hub's **Pill fall speed** (Game settings;
+50–200%). Answers up to 100 characters wrap onto up to three lines on the pill and shrink to fit.
+
 ## Hub mode in one paragraph
 Open the Hub on any device and sign in. A **Game screen** account goes straight to `/play`; admin and staff can use
 "Play Pharma Ninja" on the Hub home page.

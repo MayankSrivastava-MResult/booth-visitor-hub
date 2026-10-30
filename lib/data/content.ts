@@ -1,8 +1,21 @@
-/* Game content admin: domains and questions (admin only; enforced here and by RLS).
+/* Game settings admin: pill fall speed, domains and questions (admin only; enforced here and by RLS).
  * Ids never change once created: game devices and synced rounds refer to them. */
 import { asUser, pgCode, PG } from '../db';
 import type { DomainInput, QuestionInput } from '../questions';
 import type { SessionUser } from '../session';
+
+/** Pill fall speed for every game screen: a factor on the game's built-in fall times. */
+export const FALL_SPEED = { min: 0.5, max: 2, default: 1 } as const;
+
+export async function getFallSpeed(user: SessionUser): Promise<number> {
+  const [row] = await asUser(user, (tx) => tx<{ v: string }[]>`select fall_speed as v from hub.settings where id = 1`);
+  return Number(row.v);
+}
+
+export async function setFallSpeed(admin: SessionUser, v: number): Promise<boolean> {
+  const rows = await asUser(admin, (tx) => tx`update hub.settings set fall_speed = ${v}, updated_by = ${admin.id} where id = 1 returning id`);
+  return rows.length === 1;
+}
 
 export type Domain = DomainInput & { questionCount: number; enabledQuestionCount: number };
 

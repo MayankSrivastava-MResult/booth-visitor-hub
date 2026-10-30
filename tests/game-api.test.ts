@@ -5,6 +5,7 @@ import Papa from 'papaparse';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import * as exportRoute from '@/app/api/admin/export/route';
+import * as gameSettingsRoute from '@/app/api/admin/game-settings/route';
 import * as usersRoute from '@/app/api/admin/users/route';
 import * as userRoute from '@/app/api/admin/users/[id]/route';
 import * as domainRoute from '@/app/api/admin/domains/[id]/route';
@@ -63,11 +64,11 @@ describe('domains and questions CRUD with the game rules', () => {
   });
   it('rejects a question that breaks a rule, with the reason', async () => {
     const r = await questionsRoute.POST(req('/api/admin/questions', { method: 'POST', cookie: admin, body: {
-      id: 'ro-01', domainId: 'regops', questionText: 'What is an eCTD?', options: ['Electronic Common Technical Document', 'B', 'C', 'D'],
+      id: 'ro-01', domainId: 'regops', questionText: 'What is an eCTD?', options: ['Electronic Common Technical Document, the standard format used for regulatory submissions worldwide!!!!', 'B', 'C', 'D'],
       correctIndex: 0, difficulty: 1, enabled: true } }));
     expect(r.status).toBe(400);
     const { errors } = await r.json();
-    expect(errors.join(' ')).toMatch(/is 36 characters \(max 28\)/);
+    expect(errors.join(' ')).toMatch(/is 103 characters \(max 100\)/);
   });
   it('creates, edits and blocks deleting a domain that has questions', async () => {
     const body = { id: 'ro-01', domainId: 'regops', questionText: 'What is an eCTD used for?', options: ['Regulatory submissions', 'Lab notes', 'Payroll', 'Shipping'],
@@ -93,7 +94,7 @@ describe('CSV import and export', () => {
     const csv = '﻿' + [CSV_HEADER.join(','),
       row(['ro-02', 'regops', 'Which agency, in the US, approves new drugs?', 'FDA', 'EMA', 'PMDA', 'CDSCO', '', '1', '1', 'The FDA, of course.', 'Real', 'yes']),
       row(['ct-01', 'clinical', 'Updated: when did ICH E6(R3) take effect in the EU?', '1 January 2024', '31 January 2025', '23 July 2025', '1 January 2026', '', '3', '3', 'Edited.', 'TEST - Darshan prototype', 'yes']),
-      row(['ro-03', 'regops', 'Too wordy option here?', 'one two three four five', 'B', 'C', 'D', '', '1', '1', '', '', 'yes']),
+      row(['ro-03', 'regops', 'Too long an option here?', 'x'.repeat(101), 'B', 'C', 'D', '', '1', '1', '', '', 'yes']),
       row(['ro-04', 'nowhere', 'Unknown domain?', 'A', 'B', 'C', 'D', '', '1', '1', '', '', 'no']),
       row(['ro-02', 'regops', 'Duplicate id in file?', 'A', 'B', 'C', 'D', '', '1', '1', '', '', 'yes']),
     ].join('\r\n');
@@ -103,7 +104,7 @@ describe('CSV import and export', () => {
     expect(j.created).toBe(1);
     expect(j.updated).toBe(1);
     expect(j.skipped.map((s: { row: number }) => s.row)).toEqual([4, 5, 6]);
-    expect(j.skipped[0].reasons.join(' ')).toMatch(/5 words/);
+    expect(j.skipped[0].reasons.join(' ')).toMatch(/101 characters/);
     expect(j.skipped[1].reasons.join(' ')).toMatch(/unknown domainId/);
     const [ct] = await owner`select question_text, correct_index from hub.questions where id = 'ct-01'`;
     expect(ct).toEqual({ question_text: 'Updated: when did ICH E6(R3) take effect in the EU?', correct_index: 2 });
@@ -165,6 +166,22 @@ describe('game screen accounts and the game API', () => {
     expect((await contentRoute.GET(req('/api/game/content', { cookie: game, headers: { 'if-none-match': etag } }))).status).toBe(304);
     // staff and admin can run the game too
     expect((await contentRoute.GET(req('/api/game/content', { cookie: staff }))).status).toBe(200);
+  });
+  it('the pill fall speed is set by an admin and reaches the game with the content', async () => {
+    const put = (fallSpeed: unknown, cookie = admin) => gameSettingsRoute.PUT(req('/api/admin/game-settings', { method: 'PUT', cookie, body: { fallSpeed } }));
+    const before = await contentRoute.GET(req('/api/game/content', { cookie: game }));
+    expect((await before.json()).settings).toEqual({ fallSpeed: 1 });
+    expect((await put(1.5, staff)).status).toBe(403);
+    expect((await put(2.5)).status).toBe(400);
+    expect((await put('fast')).status).toBe(400);
+    const ok = await put(0.75);
+    expect(await ok.json()).toEqual({ fallSpeed: 0.75 });
+    // the content version changes, so screens holding the old version download it again
+    const after = await contentRoute.GET(req('/api/game/content', { cookie: game, headers: { 'if-none-match': before.headers.get('etag')! } }));
+    expect(after.status).toBe(200);
+    expect((await after.json()).settings).toEqual({ fallSpeed: 0.75 });
+    expect(await (await gameSettingsRoute.GET(req('/api/admin/game-settings', { cookie: admin }))).json()).toEqual({ fallSpeed: 0.75 });
+    await put(1);
   });
   it('email lookup returns ONLY {found, firstName}', async () => {
     const r = await lookupRoute.POST(req('/api/game/lookup', { method: 'POST', cookie: game, body: { email: ' Elodie@Example.com ' } }));

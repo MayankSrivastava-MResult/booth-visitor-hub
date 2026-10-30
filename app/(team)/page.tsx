@@ -17,7 +17,7 @@ export default async function Home() {
         <a className="tile" href="/play"><b>Play Pharma Ninja</b><span>Run the game on this device. On public screens, sign in with the game account instead.</span></a>
         {user.role === 'admin' && <>
           <Link className="tile" href="/admin/export"><b>Excel export</b><span>Everything, one click</span></Link>
-          <Link className="tile" href="/admin/game"><b>Game content</b><span>Pharma Ninja domains, questions, CSV</span></Link>
+          <Link className="tile" href="/admin/game"><b>Game settings</b><span>Pharma Ninja fall speed, domains, questions, CSV</span></Link>
           <Link className="tile" href="/admin/users"><b>Team</b><span>Who can sign in</span></Link>
           <Link className="tile" href="/admin/settings"><b>Settings</b><span>Consent text, podcast topics, demos</span></Link>
         </>}

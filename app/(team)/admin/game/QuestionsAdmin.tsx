@@ -81,7 +81,7 @@ export default function QuestionsAdmin({ domains, questions }: { domains: D[]; q
           </div>
           <label className="field">Question <span className="opt">({q.questionText.length}/120)</span>
             <textarea rows={2} value={q.questionText} onChange={(e) => setQ('questionText', e.target.value)} aria-invalid={q.questionText.length > 120} /></label>
-          <div className="field"><span>Options <span className="opt">(4 or 5; each max 4 words and 28 characters; tick the correct one)</span></span>
+          <div className="field"><span>Options <span className="opt">(4 or 5; each max 100 characters, shorter reads better; tick the correct one)</span></span>
             <div className="stack">
               {[0, 1, 2, 3, 4].map((i) => {
                 const o = q.options[i] ?? '';

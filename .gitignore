@@ -21,3 +21,7 @@ pharma-ninja-src/dist/
 # OS / editor
 .DS_Store
 .vercel
+
+# Question spreadsheets and the CSVs made from them (content, kept out of the repo)
+*.xlsx
+Pharma Ninja questions*.csv

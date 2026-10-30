@@ -1,6 +1,6 @@
 /* Game content rules, matching Pharma Ninja's own pharma-ninja-src/src/validate.js:
- *   - questionText at most 120 characters
- *   - 4 or 5 options; each option at most 4 words AND at most 28 characters; no duplicates
+ *   - questionText at most 170 characters (the question card shrinks long text)
+ *   - 4 or 5 options; each option at most 100 characters (the capsule wraps and shrinks it); no duplicates
  *   - exactly one correct option (a valid correctIndex)
  *   - difficulty 1, 2 or 3
  *   - domain must exist
@@ -28,14 +28,12 @@ export function questionErrors(q: QuestionInput, domainIds: Set<string>): string
   if (!domainIds.has(q.domainId)) errs.push(`unknown domainId "${q.domainId}"`);
   const text = q.questionText ?? '';
   if (!text.trim()) errs.push('questionText is empty');
-  if (text.length > 120) errs.push(`questionText is ${text.length} characters (max 120)`);
+  if (text.length > 170) errs.push(`questionText is ${text.length} characters (max 170)`);
   const opts = Array.isArray(q.options) ? q.options : [];
   if (opts.length < 4 || opts.length > 5) errs.push(`${opts.length} options (need 4 or 5)`);
   opts.forEach((o, i) => {
     if (!o || !o.trim()) { errs.push(`option ${i + 1} is empty`); return; }
-    const words = o.trim().split(/\s+/).length;
-    if (words > 4) errs.push(`option ${i + 1} "${o}" has ${words} words (max 4)`);
-    if (o.length > 28) errs.push(`option ${i + 1} "${o}" is ${o.length} characters (max 28)`);
+    if (o.length > 100) errs.push(`option ${i + 1} "${o}" is ${o.length} characters (max 100)`);
   });
   if (new Set(opts).size !== opts.length) errs.push('two options are identical');
   if (!(Number.isInteger(q.correctIndex) && q.correctIndex >= 0 && q.correctIndex < opts.length)) errs.push('correct option is not one of the options');

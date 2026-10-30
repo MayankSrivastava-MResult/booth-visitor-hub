@@ -8,8 +8,8 @@
  * so the whole set can be bulk-deleted when real content is imported.
  *
  * Question rules (enforced by the build script and, in M2, the admin):
- *   - questionText  <= ~120 characters
- *   - 4 or 5 options, each <= 4 words AND <= 28 characters
+ *   - questionText  <= 170 characters
+ *   - 4 or 5 options, each <= 100 characters (the capsule wraps and shrinks long answers)
  *   - exactly one correctIndex; difficulty 1..3
  *   - explanation is shown on the results review only, never mid-round
  * ===================================================================== */

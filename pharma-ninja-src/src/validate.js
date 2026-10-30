@@ -1,9 +1,9 @@
 const fs=require('fs');eval(fs.readFileSync(__dirname+'/data.js','utf8')+';global.Q=SEED_QUESTIONS;global.D=SEED_DOMAINS;');
 let bad=0;const per={};
 for(const q of Q){const errs=[];
- if(q.questionText.length>120)errs.push('q>120 ('+q.questionText.length+')');
+ if(q.questionText.length>170)errs.push('q>170 ('+q.questionText.length+')');
  if(q.options.length<4||q.options.length>5)errs.push('opt count');
- q.options.forEach(o=>{if(o.trim().split(/\s+/).length>4||o.length>28)errs.push('opt "'+o+'"')});
+ q.options.forEach(o=>{if(o.length>100)errs.push('opt "'+o+'"')});
  if(!(q.correctIndex>=0&&q.correctIndex<q.options.length))errs.push('correct');
  if(new Set(q.options).size!==q.options.length)errs.push('dup opt');
  if(![1,2,3].includes(q.difficulty))errs.push('diff');

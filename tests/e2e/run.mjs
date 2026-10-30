@@ -76,6 +76,14 @@ async function flowOffline(sql, cookie) {
     await c.waitFor('!!navigator.serviceWorker.controller', 15000);
     await c.waitFor('PharmaNinja.Hub.signedIn === true && PharmaNinja.Hub.status.content === "updated"', 15000);
     check('signed-in game screen loads questions from the Hub', true, await c.eval('PharmaNinja.Store.data.questions.length + " questions"'));
+    const ladder = await c.eval(`(() => {
+      const pool = []; [1, 2, 3].forEach((d) => { for (let i = 0; i < 40; i++) pool.push({ id: d + '-' + i, difficulty: d }); });
+      const full = PharmaNinja.Round.ladder(pool, 5, 5).map((q) => q.difficulty);
+      const short = PharmaNinja.Round.ladder(pool.filter((q) => q.difficulty !== 1 || ['1-0', '1-1'].includes(q.id)), 5, 5).map((q) => q.difficulty);
+      return { head: full.slice(0, 12).join(''), n: full.length, unique: new Set(full).size, short: short.slice(0, 11).join('') };
+    })()`);
+    check('difficulty ladder: 5 Easy, 5 Moderate, then Difficult; a short level is filled from the next',
+      ladder.head === '111112222233' && ladder.n === 120 && ladder.short === '11222222223', ladder);
 
     const play = async (name, domain, poke) => {
       await c.eval(`PharmaNinja.Round.start({ displayName: ${JSON.stringify(name)}, email: 'asha@example.com', emailConfirmed: true }, '${domain}'); true`);

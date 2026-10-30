@@ -32,8 +32,11 @@
 var DEFAULT_SETTINGS = {
   roundSeconds: 75,
   lives: 3,
+  ladderEasy: 5,          // difficulty ladder: this many Easy questions first,
+  ladderModerate: 5,      // then this many Moderate, then Difficult for the rest of the round
   fallTimeStart: 6.0,     // seconds for a capsule to cross the play zone at round start
   fallTimeEnd: 3.2,       // ... and at round end (fall speed increases through the round)
+  fallSpeed: 1,           // factor on both fall times, set in the Hub (Game settings → Pill fall speed): 2 = twice as fast
   playZoneTop: 1 / 3,     // play zone as a fraction of screen height (default: lower two-thirds)
   playZoneBottom: 1.0,
   minSwipeSpeed: 0.5,     // CSS px per ms on a 1080-px short edge; slower moves (and taps) don't slice
@@ -145,6 +148,7 @@ function $(id) { return document.getElementById(id); }
 function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
 function lerp(a, b, t) { return a + (b - a) * t; }
 function rand(a, b) { return a + Math.random() * (b - a); }
+var LEVEL_NAME = { 1: 'Easy', 2: 'Moderate', 3: 'Difficult' };
 function shuffle(arr) { var a = arr.slice(); for (var i = a.length - 1; i > 0; i--) { var j = (Math.random() * (i + 1)) | 0; var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
 function fmt(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
 function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -425,6 +429,25 @@ function roundRectPath(ctx, x, y, w, h, r) {
   ctx.lineTo(x + w, y + h - r); ctx.arcTo(x + w, y + h, x + w - r, y + h, r); ctx.lineTo(x + r, y + h);
   ctx.arcTo(x, y + h, x, y + h - r, r); ctx.lineTo(x, y + r); ctx.arcTo(x, y, x + r, y, r); ctx.closePath();
 }
+/* Greedy word wrap at the current font. Returns null if a single word is wider than maxW.
+   With maxLines, words are spread evenly over that many lines instead (no width limit). */
+function wrapText(x, text, maxW, maxLines) {
+  var words = text.split(/\s+/).filter(Boolean);
+  if (maxLines) {
+    var per = Math.ceil(words.length / maxLines), out = [];
+    for (var i = 0; i < words.length; i += per) out.push(words.slice(i, i + per).join(' '));
+    return out;
+  }
+  var lines = [], cur = '';
+  for (var j = 0; j < words.length; j++) {
+    if (x.measureText(words[j]).width > maxW) return null;
+    var next = cur ? cur + ' ' + words[j] : words[j];
+    if (x.measureText(next).width <= maxW) cur = next; else { lines.push(cur); cur = words[j]; }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
 /* Draws one capsule (two-tone pharma capsule with the answer text) onto a canvas.
    state: 'normal' or 'wrong' (drained grey, used for the halves of a wrong slice) */
 function drawCapsule(cw, ch, pad, U, accent, text, state) {
@@ -441,24 +464,21 @@ function drawCapsule(cw, ch, pad, U, accent, text, state) {
   x.lineTo(r, ch); x.arc(r, r, r, Math.PI / 2, Math.PI * 1.5); x.closePath();
   x.save(); x.shadowColor = 'rgba(0,0,0,0.3)'; x.shadowBlur = 8 * U; x.shadowOffsetX = 2 * U; x.fillStyle = capCol; x.fill(); x.restore();
   roundRectPath(x, cw * 0.046, ch * 0.13, cw * 0.9, ch * 0.12, ch * 0.06); x.fillStyle = 'rgba(255,255,255,0.4)'; x.fill();
-  // answer text, fitted inside the body (one line, else two lines, else shrink)
-  var left = cw * 0.315, right = cw * 0.94, areaW = right - left, cx = (left + right) / 2, fs = 32 * U;
+  // answer text, fitted inside the body: the largest size at which it wraps into lines that fit
+  var left = cw * 0.315, right = cw * 0.94, areaW = right - left, areaH = ch * 0.84, cx = (left + right) / 2;
   x.fillStyle = ink; x.textAlign = 'center'; x.textBaseline = 'middle';
-  x.font = '700 ' + fs + 'px "Barlow Condensed", "Arial Narrow", sans-serif';
-  if (x.measureText(text).width <= areaW) { x.fillText(text, cx, ch / 2 + U); return c; }
-  var words = text.split(' '), best = null;
-  for (var i = 1; i < words.length; i++) {
-    var a = words.slice(0, i).join(' '), b = words.slice(i).join(' '), w = Math.max(x.measureText(a).width, x.measureText(b).width);
-    if (!best || w < best.w) best = { a: a, b: b, w: w };
+  var lines = null, fs = 32 * U;
+  for (; fs >= 15 * U; fs -= U) {
+    x.font = '700 ' + fs + 'px "Barlow Condensed", "Arial Narrow", sans-serif';
+    lines = wrapText(x, text, areaW);
+    if (lines && lines.length * fs * 1.08 <= areaH) break;
+    lines = null;
   }
-  if (best) {
-    fs = 30 * U; x.font = '700 ' + fs + 'px "Barlow Condensed", "Arial Narrow", sans-serif';
-    var w2 = Math.max(x.measureText(best.a).width, x.measureText(best.b).width);
-    if (w2 > areaW) { fs *= areaW / w2; x.font = '700 ' + fs + 'px "Barlow Condensed", "Arial Narrow", sans-serif'; }
-    x.fillText(best.a, cx, ch / 2 - fs * 0.52); x.fillText(best.b, cx, ch / 2 + fs * 0.55);
-  } else {
-    fs *= areaW / x.measureText(text).width; x.font = '700 ' + fs + 'px "Barlow Condensed", "Arial Narrow", sans-serif'; x.fillText(text, cx, ch / 2);
+  if (!lines) {   // still too long at the smallest size: squeeze the lines to the width
+    lines = wrapText(x, text, Infinity, Math.floor(areaH / (fs * 1.08)) || 1);
   }
+  var lh = fs * 1.08, top = ch / 2 - (lines.length - 1) * lh / 2 + U;
+  lines.forEach(function (ln, i) { x.fillText(ln, cx, top + i * lh, areaW); });
   return c;
 }
 
@@ -827,12 +847,16 @@ var Activity = {
 
 /* ---------------------------------------------------------------------
  * 8. ROUND — the game rules
- *   - One domain; questions in difficulty order 1→3, shuffled within a
- *     level, no repeats. The round ends when time runs out, lives reach
- *     zero, or the domain's questions run out.
+ *   - One domain; a difficulty ladder drawn at random from its questions:
+ *     5 Easy, then 5 Moderate, then Difficult (settings.ladderEasy /
+ *     ladderModerate). A level that runs short is filled from the next one;
+ *     after the Difficult ones, any unused Moderate then Easy questions. No
+ *     repeats. The round ends when time runs out, lives reach zero, or the
+ *     domain's questions run out.
  *   - The first capsule sliced ends the question, right or wrong.
- *   - Correct: max(20, 100 × (1 − fall progress)) × streak multiplier.
- *     Multiplier ×1.5 from the 4th correct in a row, ×2 from the 6th.
+ *   - Correct: max(20, 100 × (1 − fall progress)) × level × streak, where
+ *     level is ×1 Easy, ×1.5 Moderate, ×2 Difficult and streak is ×1.5
+ *     from the 4th correct in a row, ×2 from the 6th.
  *   - Wrong: −1 life, streak resets. All capsules missed: no penalty,
  *     streak resets, next question.
  * ------------------------------------------------------------------- */
@@ -840,8 +864,7 @@ var Round = {
   active: false,
   start: function (player, domainId) {
     var s = Store.settings, d = Store.domain(domainId), pool = Store.questionsFor(domainId);
-    var order = [];
-    [1, 2, 3].forEach(function (lv) { order = order.concat(shuffle(pool.filter(function (q) { return q.difficulty === lv; }))); });
+    var order = this.ladder(pool, s.ladderEasy, s.ladderModerate);
     this.st = { id: uid(), player: player, domain: d, order: order, idx: 0, score: 0, lives: s.lives, streak: 0, longest: 0,
       timeLeft: s.roundSeconds, elapsed: 0, answers: [], cur: null, over: false };
     this.active = true;
@@ -849,6 +872,14 @@ var Round = {
     Stage.setMode('play'); Input.slicing = true;
     var self = this; setTimeout(function () { self.next(); }, 250);
   },
+  /* The question order for one round (see the rules above). */
+  ladder: function (pool, nEasy, nModerate) {
+    var by = [1, 2, 3].map(function (lv) { return shuffle(pool.filter(function (q) { return q.difficulty === lv; })); });
+    var take = function (lv, n) { var out = []; for (var l = lv; l <= 3 && out.length < n; l++) out = out.concat(by[l - 1].splice(0, n - out.length)); return out; };
+    var order = take(1, nEasy).concat(take(2, nModerate));
+    return order.concat(by[2], by[1], by[0]);
+  },
+  LEVEL_MULT: { 1: 1, 2: 1.5, 3: 2 },
   next: function () {
     var st = this.st; if (!this.active || st.over) return;
     if (st.idx >= st.order.length) return this.end('cleared');
@@ -856,7 +887,7 @@ var Round = {
     st.cur = { q: q, resolved: false, shownAt: Date.now() };
     Hud.question(st, q);
     var s = Store.settings, t = clamp(st.elapsed / s.roundSeconds, 0, 1);
-    var fallTime = lerp(s.fallTimeStart, s.fallTimeEnd, t);
+    var fallTime = lerp(s.fallTimeStart, s.fallTimeEnd, t) / clamp(Number(s.fallSpeed) || 1, 0.5, 2);
     var spawnTopCss = Math.max(window.innerHeight * s.playZoneTop, Hud.cardBottom() + 1.6 * remPx());
     Stage.queueQuestion(q.options, st.domain.accent, fallTime, spawnTopCss * (Stage.H / window.innerHeight), 450);
   },
@@ -867,11 +898,12 @@ var Round = {
     var ms = Math.round(Stage.time.now - c.born), p = Stage.progress(c);
     Sound.play('slice');
     if (correct) {
-      var mult = st.streak >= 5 ? 2 : st.streak >= 3 ? 1.5 : 1;
-      var base = Math.max(MIN_POINTS, Math.round(BASE_POINTS * (1 - p))), pts = Math.round(base * mult);
+      var mult = st.streak >= 5 ? 2 : st.streak >= 3 ? 1.5 : 1, lvl = this.LEVEL_MULT[q.difficulty] || 1;
+      var base = Math.max(MIN_POINTS, Math.round(BASE_POINTS * (1 - p))), pts = Math.round(base * lvl * mult);
       st.score += pts; st.streak++; st.longest = Math.max(st.longest, st.streak);
       Stage.split(c, hit, 'correct');
-      Stage.popup(hit.x, hit.y - 40 * Stage.U, '+' + pts, mult > 1 ? base + ' × ' + mult + ' streak' : null);
+      var why = [lvl > 1 ? '×' + lvl + ' ' + LEVEL_NAME[q.difficulty].toLowerCase() : '', mult > 1 ? '×' + mult + ' streak' : ''].filter(Boolean).join('  ');
+      Stage.popup(hit.x, hit.y - 40 * Stage.U, '+' + pts, why ? base + '  ' + why : null);
       Sound.play('correct');
       if (st.streak === 3 || st.streak === 5) { Sound.play('streak'); }
       cur.result = 'correct';
@@ -1247,7 +1279,7 @@ var Picker = {
     if (!player) return Screens.toAttract();
     var s = Store.settings, tiles = '', ds = Store.enabledDomains();
     $('pk-me').innerHTML = '<div class="av">' + esc(player.displayName.slice(0, 2).toUpperCase()) + '</div>' + esc(player.displayName);
-    $('pk-sub').innerHTML = 'One domain per round, <b>' + s.roundSeconds + ' seconds</b>, ' + s.lives + ' lives';
+    $('pk-sub').innerHTML = 'One domain per round, <b>' + s.roundSeconds + ' seconds</b>, ' + s.lives + ' lives · Easy → Moderate → Difficult';
     ds.forEach(function (d) {
       var n = Store.questionsFor(d.id).length;
       tiles += '<button class="tile" data-d="' + esc(d.id) + '"' + (n ? '' : ' disabled') + '><div class="ring" style="box-shadow:inset 0 0 0 0.4rem ' + d.accent + ';color:' + d.accent + '">' + icon(d.icon) + '</div>' +
@@ -1273,7 +1305,7 @@ var Hud = {
   },
   question: function (st, q) {
     var card = $('h-card'), qt = $('h-q');
-    $('h-qn').textContent = 'Question ' + st.idx;
+    $('h-qn').textContent = 'Question ' + st.idx + ' · ' + LEVEL_NAME[q.difficulty];
     qt.textContent = q.questionText; qt.style.fontSize = '';
     // shrink long questions until the card clears the top of the play zone
     var limit = window.innerHeight * Store.settings.playZoneTop, size = 5.0;
@@ -1556,6 +1588,7 @@ var Hub = {
         return res.json().then(function (c) {
           if (!self.usable(c)) { self.status.content = 'Hub has no playable questions yet: keeping the current ones'; return false; }
           Store.data.domains = c.domains; Store.data.questions = c.questions;
+          if (c.settings && c.settings.fallSpeed) s.fallSpeed = clamp(Number(c.settings.fallSpeed) || 1, 0.5, 2);
           s.contentEtag = etag; s.contentVersion = c.version || ''; s.lastContentAt = Date.now();
           self.status.content = 'updated';
           return Store.saveMany(['domains', 'questions', 'settings']).then(function () { return true; });
@@ -1647,7 +1680,7 @@ var Hub = {
 };
 
 /* Exposed for debugging in the browser console (and the Hub's automated tests) only */
-window.PharmaNinja = { Store: Store, Round: Round, Leaderboard: Leaderboard, Hub: Hub, Screens: Screens, NameEntry: NameEntry, Admin: Admin,
+window.PharmaNinja = { Store: Store, Round: Round, drawCapsule: drawCapsule, Leaderboard: Leaderboard, Hub: Hub, Screens: Screens, NameEntry: NameEntry, Admin: Admin,
   Register: Register, Sound: Sound,
   get Stage() { return Stage; } };
 

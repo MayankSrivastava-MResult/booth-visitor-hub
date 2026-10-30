@@ -16,14 +16,14 @@ Next.js (App Router, TypeScript) on Vercel; Postgres on Supabase (used as plain 
 | `app/api/…` | JSON API. Each route file starts with a comment giving its request and response shapes. |
 | `app/api/game/…` | The API Pharma Ninja uses: content, email lookup (first name only), round sync. Any signed-in account; this is ALL a **Game screen** account can reach. |
 | `/play` | Pharma Ninja, built from `pharma-ninja-src/` by `npm run build:game` (runs automatically before `dev` and `build`). |
-| `lib/questions.ts` | Game content rules (same as the game's `validate.js`) and the CSV layout. |
+| `lib/questions.ts` | Question rules (same as the game's `validate.js`: question ≤ 170 characters, 4–5 options of ≤ 100 characters) and the CSV layout. |
 | `components/` | Shared client components: registration form, interaction form. |
 | `lib/db.ts` | Database access. Every request runs as a low-privilege role, so row-level security applies. |
 | `lib/session.ts`, `lib/password.ts` | Sessions (httpOnly cookie → `hub.sessions`) and scrypt password hashing. |
 | `lib/validation.ts` | All input rules (zod). |
 | `lib/data/` | Queries: visitors, interactions, team & settings, Excel export. |
 | `db/migrations/` | Plain SQL: schema, roles/grants/RLS, functions, seed. Runs on any Postgres 16+. |
-| `scripts/` | `migrate.mjs`, `gen-seed.mjs` (seed from the game's `data.js`), `set-password.mjs`, `dev-db.mjs`. |
+| `scripts/` | `migrate.mjs`, `gen-seed.mjs` (seed from the game's `data.js`), `set-password.mjs`, `dev-db.mjs`, `questions-from-xlsx.mjs` (question spreadsheet → import CSV). |
 | `tests/` | Database-policy and API tests against a real throwaway Postgres 17. |
 | `pharma-ninja-src/` | The game's source (see its own README). Served at `/play`. |
 

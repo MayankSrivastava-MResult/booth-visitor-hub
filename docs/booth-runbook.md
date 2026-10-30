@@ -14,10 +14,12 @@
 1. **Upgrade both services** (section 9). The free plans are for building only.
 2. **Add the team** (Hub → **Team**): each person's email, name, role (**Staff** or **Admin**) and a password you give them.
    Add one **Game screen** account (e.g. `game@mresult.com`); it can only run the game.
-3. **Load the real questions** (Hub → **Game content**):
-   1. Import the CSV.
-   2. Check that each domain has at least 20 enabled questions.
-   3. Then **Delete TEST questions**.
+3. **Load the real questions** (Hub → **Game settings**):
+   1. Turn the question spreadsheet into the import file: `node scripts/questions-from-xlsx.mjs "<file>.xlsx"` (it lists any question it had to leave out, and switches off questions not marked Verified or with a note in Corrections).
+   2. Import that CSV.
+   3. Check that each domain has at least 5 enabled Easy and 5 enabled Moderate questions (each round climbs 5 Easy → 5 Moderate → Difficult).
+   4. Then **Delete TEST questions**.
+   5. Set the **Pill fall speed** at the top of the page. Slower if long answers are hard to read; screens pick it up within 5 minutes.
 4. **Settings:** add the podcast topics and the demo list.
 5. **Clear the test data** (Hub → **Data** → **Purge all event data**). Do this after any rehearsal, and before doors open on 2 November. Purging also removes an imported list.
 6. **Import the organisers' list** (Hub → **Data** → **Import a file**), after the purge. Excel or CSV with a header row; Full name and Company are required. Imported people show as *pre-seeded*.
