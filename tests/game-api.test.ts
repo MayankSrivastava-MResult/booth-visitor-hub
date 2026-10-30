@@ -111,6 +111,19 @@ describe('CSV import and export', () => {
     const [ro] = await owner`select question_text from hub.questions where id = 'ro-02'`;
     expect(ro.question_text).toBe('Which agency, in the US, approves new drugs?');   // commas inside quotes survive
   });
+  it('stores long questions and answers up to the limits, and a 1,000-row file in one go', async () => {
+    const longQ = 'Q'.repeat(169) + '?', longO = 'An answer with many words that wraps on the pill '.padEnd(100, 'x');
+    const rows = [row(['long-01', 'regops', longQ, longO, 'B', 'C', 'D', '', '1', '3', '', 'Real', 'yes'])];
+    for (let i = 0; i < 1000; i++) rows.push(row([`bulk-${i}`, 'regops', `Bulk question ${i}?`, 'Option A', 'Option B', 'Option C', 'Option D', '', '2', String(1 + (i % 3)), '', 'Real', 'no']));
+    const csv = [CSV_HEADER.join(','), ...rows].join('\r\n');
+    const r = await importRoute.POST(req('/api/admin/questions/import', { method: 'POST', cookie: admin, body: { csv } }));
+    expect(await r.json()).toEqual({ created: 1001, updated: 0, skipped: [] });
+    const [q] = await owner`select char_length(question_text) as q, char_length(options[1]) as o from hub.questions where id = 'long-01'`;
+    expect(q).toEqual({ q: 170, o: 100 });
+    const again = await importRoute.POST(req('/api/admin/questions/import', { method: 'POST', cookie: admin, body: { csv } }));
+    expect(await again.json()).toEqual({ created: 0, updated: 1001, skipped: [] });
+    await owner`delete from hub.questions where id = 'long-01' or id like 'bulk-%'`;
+  });
   it('export → import changes nothing (round trip)', async () => {
     const res = await exportCsvRoute.GET(req('/api/admin/questions/export', { cookie: admin }));
     expect(res.headers.get('content-type')).toContain('text/csv');

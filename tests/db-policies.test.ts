@@ -206,11 +206,11 @@ describe('question rules in the database (backstop for the API)', () => {
   it('rejects bad options', async () => {
     await expect(insert(['a', 'b', 'c'])).rejects.toThrow(/check/);                                // 3 options
     await expect(insert(['a', 'b', 'c', 'd', 'e', 'f'])).rejects.toThrow(/check/);                 // 6 options
-    await expect(insert(['one two three four five', 'b', 'c', 'd'])).rejects.toThrow(/check/);     // 5 words
-    await expect(insert(['x'.repeat(29), 'b', 'c', 'd'])).rejects.toThrow(/check/);                // 29 chars
+    await expect(insert(['x'.repeat(101), 'b', 'c', 'd'])).rejects.toThrow(/check/);               // 101 chars
+    await expect(insert(['  ', 'b', 'c', 'd'])).rejects.toThrow(/check/);                          // blank
     await expect(insert(['a', 'a', 'c', 'd'])).rejects.toThrow(/check/);                           // duplicate
     await expect(insert(['a', 'b', 'c', 'd'], 4)).rejects.toThrow(/check/);                        // correct out of range
-    await expect(insert(['a', 'b', 'c', 'd'], 0, 'q'.repeat(121))).rejects.toThrow(/check/);       // text > 120
-    await expect(insert(['Good Manufacturing Practice', 'b', 'c', 'd'])).resolves.toBeDefined();   // 27 chars, 3 words
+    await expect(insert(['a', 'b', 'c', 'd'], 0, 'q'.repeat(171))).rejects.toThrow(/check/);       // text > 170
+    await expect(insert(['one two three four five six seven', 'b', 'c', 'd'])).resolves.toBeDefined();   // no word limit
   });
 });

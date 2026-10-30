@@ -101,21 +101,25 @@ export async function deleteQuestion(user: SessionUser, id: string): Promise<boo
 }
 
 /** Insert new ids, update existing ones. All rows in one transaction. */
+/** Saves many questions in one statement (a big import stays one quick round trip):
+ *  new ids are created, existing ids updated. */
 export async function upsertQuestions(user: SessionUser, qs: QuestionInput[]): Promise<{ created: number; updated: number }> {
   return asUser(user, async (tx) => {
-    let created = 0, updated = 0;
-    for (const q of qs) {
-      const [r] = await tx<{ inserted: boolean }[]>`
+    const [r] = await tx<{ created: number; updated: number }[]>`
+      with q as (
+        select * from jsonb_to_recordset(${tx.json(qs as never)})
+          as q(id text, "domainId" text, "questionText" text, options text[], "correctIndex" int, difficulty int,
+               explanation text, source text, enabled boolean)),
+      up as (
         insert into hub.questions (id, domain_id, question_text, options, correct_index, difficulty, explanation, source, enabled, created_by)
-        values (${q.id}, ${q.domainId}, ${q.questionText}, ${tx.array(q.options)}::text[], ${q.correctIndex}, ${q.difficulty},
-                ${q.explanation}, ${q.source}, ${q.enabled}, ${user.id})
+        select id, "domainId", "questionText", options, "correctIndex", difficulty, coalesce(explanation, ''), coalesce(source, ''), enabled, ${user.id}::uuid
+        from q
         on conflict (id) do update set domain_id = excluded.domain_id, question_text = excluded.question_text,
           options = excluded.options, correct_index = excluded.correct_index, difficulty = excluded.difficulty,
-          explanation = excluded.explanation, source = excluded.source, enabled = excluded.enabled, updated_by = ${user.id}
-        returning (xmax = 0) as inserted`;
-      if (r.inserted) created++; else updated++;
-    }
-    return { created, updated };
+          explanation = excluded.explanation, source = excluded.source, enabled = excluded.enabled, updated_by = ${user.id}::uuid
+        returning (xmax = 0) as inserted)
+      select count(*) filter (where inserted)::int as created, count(*) filter (where not inserted)::int as updated from up`;
+    return r;
   });
 }
 
