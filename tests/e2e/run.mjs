@@ -5,10 +5,10 @@
 //
 // A. Offline (the brief's test): disconnect mid-round, reload with no server (service worker),
 //    play 3 rounds offline, reconnect → every round synced exactly once, every play stored.
-// B. Register from the game: email or name is enough; a complete email is checked as it is typed
-//    (no suggestions); unregistered → "This email isn't registered yet" → Just play (name made from
-//    the email) or Register now → the form over the game with the email prefilled, music keeps
-//    playing; saved → back with first name, confirmed.
+// B. Register from the game: a name alone plays; a complete email is checked as it is typed
+//    (no suggestions); unregistered → "This email isn't registered yet" → it can't play until
+//    registered: Register now → the form over the game with the email prefilled, music keeps
+//    playing; saved → back with first name, confirmed. A registered email: Yes fills the name.
 // C. Standalone file (no Hub): zero network requests; a name alone plays; an email stays unconfirmed.
 import { execSync, spawn } from 'node:child_process';
 import { randomBytes, scrypt } from 'node:crypto';
@@ -164,6 +164,9 @@ async function flowRegister(sql, cookie) {
     await c.goto(`${B}/play`);
     await c.waitFor('window.PharmaNinja && PharmaNinja.Screens.current === "attract"');
     await c.eval('PharmaNinja.Sound.unlock(); true'); await sleep(400);
+    await c.eval('document.querySelector(".attract-lockup").click(); true');
+    await sleep(300);
+    check('a stray tap on the home screen does nothing (only Play now starts)', (await c.eval('PharmaNinja.Screens.current')) === 'attract');
     await c.eval('document.getElementById("cta-play").click(); true');
     await c.waitFor('PharmaNinja.Screens.current === "name"');
     check('the cursor starts in the Email field (shown first)', (await c.eval('PharmaNinja.NameEntry.field')) === 'email');
@@ -189,17 +192,13 @@ async function flowRegister(sql, cookie) {
     await c.waitFor('document.getElementById("name-confirm").classList.contains("on")', 8000);
     const ask = await c.eval('[document.getElementById("nc-text").textContent, document.getElementById("nc-yes").textContent, document.getElementById("nc-no").textContent]');
     check('unregistered email, checked as typed: asks before opening the form',
-      ask[0] === 'This email isn’t registered yet.' && ask[1] === 'Register now' && ask[2] === 'Just play'
+      ask[0] === 'This email isn’t registered yet. Register to play.' && ask[1] === 'Register now' && ask[2] === 'Fix my email'
       && !(await c.eval('document.getElementById("s-reg").classList.contains("on")')), ask);
-    await c.eval('document.getElementById("nc-no").click(); true');   // Just play
-    check('"Just play" keeps the email and moves to the name', (await c.eval('[PharmaNinja.NameEntry.email, PharmaNinja.NameEntry.field]')).join() === 'ravi.menon@example.com,name');
-    await c.eval('document.getElementById("name-go").click(); true');
-    await c.waitFor('PharmaNinja.Screens.current === "picker"', 5000);
-    const unreg = await c.eval('PharmaNinja.Screens.player');
-    check('plays unregistered, the display name made from the email', unreg.displayName === 'Ravi' && unreg.email === 'ravi.menon@example.com' && unreg.emailConfirmed === false, unreg);
-    await c.eval('document.getElementById("pk-back").click(); true');   // back: the email is checked again
-    await c.waitFor('PharmaNinja.Screens.current === "name"');
+    await c.eval('document.getElementById("nc-no").click(); true');   // Fix my email
+    check('"Fix my email" keeps the typed email for correcting', (await c.eval('[PharmaNinja.NameEntry.email, PharmaNinja.NameEntry.field]')).join() === 'ravi.menon@example.com,email');
+    await c.eval('document.getElementById("name-go").click(); true');   // Choose domain with the unregistered email
     await c.waitFor('document.getElementById("name-confirm").classList.contains("on")', 8000);
+    check('an unregistered email cannot play: Choose domain asks to register again', (await c.eval('PharmaNinja.Screens.current')) === 'name');
     await c.eval('document.getElementById("nc-yes").click(); true');   // Register now
     await c.waitFor('document.getElementById("s-reg").classList.contains("on")', 8000);
     await c.waitFor(`!!(${frameDoc} && ${frameDoc}.querySelector('[name=fullName]'))`, 15000);
@@ -226,6 +225,9 @@ async function flowRegister(sql, cookie) {
     await c.waitFor('document.getElementById("name-confirm").classList.contains("on")', 8000);
     check('a registered email gets the welcome by itself, not the form',
       (await c.eval('document.getElementById("nc-text").textContent')) === 'Welcome, Asha — is this you?' && !(await c.eval('document.getElementById("s-reg").classList.contains("on")')));
+    await c.eval('document.getElementById("nc-yes").click(); true');
+    const yes = await c.eval('[PharmaNinja.NameEntry.name, PharmaNinja.NameEntry.confirmed, document.getElementById("v-name").textContent]');
+    check('Yes fills the first name into Display name and confirms the email', yes[0] === 'Asha' && yes[1] === true && yes[2] === 'Asha', yes);
     check('no page errors', pageErrors(c).length === 0, pageErrors(c));
   } finally { await c.close(); }
 }

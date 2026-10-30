@@ -974,13 +974,8 @@ var Screens = {
   init: function () {
     var self = this;
     fillSvgSlots(document);
-    // attract: touch anywhere starts (except the fullscreen button and the hidden admin corner)
-    var downInCorner = false;
-    $('s-attract').addEventListener('pointerdown', function (e) { downInCorner = Input.inAdminZone(e); });
-    $('s-attract').addEventListener('click', function (e) {
-      if (downInCorner || Admin.isOpen || e.target.closest('#fs-btn')) return;
-      NameEntry.open();
-    });
+    // attract: only the Play button starts (a stray touch on the screen does nothing)
+    $('cta-play').addEventListener('click', function () { if (!Admin.isOpen) NameEntry.open(); });
     $('fs-btn').addEventListener('click', function () {
       var d = document;
       if (d.fullscreenElement) d.exitFullscreen && d.exitFullscreen(); else d.documentElement.requestFullscreen && d.documentElement.requestFullscreen().catch(function () {});
@@ -1027,13 +1022,13 @@ var Screens = {
    Once the typed email looks complete and typing pauses, it is checked with the Hub by itself:
    registered → "Welcome, <first name> — is this you?" (Yes prefills the display name and marks
    the email confirmed; No clears it); not registered → "This email isn't registered yet" with
-   Register now (the form opens over the game, Register below) or Just play (the email is kept
-   unconfirmed and can still be corrected). There are no suggestions, so other visitors cannot
-   be browsed. If the Hub cannot be reached the player carries on and the email is stored
+   Register now (the form opens over the game, Register below) or Fix my email: an email must be
+   registered before it plays (a display name alone needs no email). There are no suggestions,
+   so other visitors cannot be browsed. If the Hub cannot be reached the player carries on and the email is stored
    unconfirmed: the game never blocks on the network. */
 var NameEntry = {
   name: '', email: '', field: 'name', shift: true, emailLocked: false,
-  confirmed: false, declined: '', offer: null, prompt: null, lookupSeq: 0, lookupTimer: null, checking: false,
+  confirmed: false, offer: null, prompt: null, lookupSeq: 0, lookupTimer: null, checking: false,
   ROWS: [['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'], ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
     ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', '-'], ['SHIFT', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '.', 'DEL'], ['@', '.COM', '_', 'SPACE', 'GO']],
   init: function () {
@@ -1075,7 +1070,7 @@ var NameEntry = {
     this.emailLocked = !!this.urlEmail; this.email = this.urlEmail || (player ? player.email || '' : '');
     // New player: start in the Email field (shown first). Coming back to change the name: the name field.
     this.field = (!player && !this.emailLocked) ? 'email' : 'name';
-    this.shift = !this.name; this.declined = ''; $('name-msg').textContent = '';
+    this.shift = !this.name; $('name-msg').textContent = '';
     Screens.show('name'); if (Stage) Stage.setMode('off'); Activity.ping(); this.paint();
     // Returning from the picker keeps a confirmed email; otherwise look a prefilled email up.
     var keep = !!(player && player.emailConfirmed && player.email === this.email);
@@ -1111,7 +1106,7 @@ var NameEntry = {
   /* The email changed: forget any confirmation. Once it looks like a complete email address
      and typing has paused, check it by itself:
        registered     → "Welcome, <first name> — is this you?"   (Yes / No)
-       not registered → "This email isn't registered yet."       (Register now / Just play)
+       not registered → "This email isn't registered yet."       (Register now / Fix my email)
      Nothing is shown for a partial email, and there are no suggestions: other visitors'
      emails and names can never be browsed from the game screen. */
   CHECK_AFTER_MS: 1200,
@@ -1149,20 +1144,20 @@ var NameEntry = {
     this.showPrompt('offer', 'Welcome, <b>' + esc(first) + '</b> — is this you?', 'Yes', 'No');
   },
   showRegister: function () {
-    this.showPrompt('register', 'This email isn’t registered yet.', 'Register now', 'Just play');
+    this.showPrompt('register', 'This email isn’t registered yet. Register to play.', 'Register now', 'Fix my email');
   },
   hidePrompt: function () {
     this.offer = null; this.prompt = null;
     $('name-confirm').classList.remove('on'); $('name-head').classList.remove('off');
   },
   answerOffer: function (yes) {
-    var kind = this.prompt;
+    var kind = this.prompt, offer = this.offer;   // read before hidePrompt() clears them
     this.hidePrompt();
     if (kind === 'register') {
       if (yes) Register.open(this.email.trim());   // the form, over the game, email prefilled
-      else { this.declined = this.email.trim(); this.field = 'name'; this.shift = !this.name; }   // play unregistered; the email can still be corrected
+      else this.field = 'email';                    // keep what they typed so they can correct it
     } else if (yes) {
-      if (this.offer && this.offer.length >= 2) this.name = this.offer;   // the player can still change it
+      if (offer && offer.length >= 2) this.name = offer;   // the player can still change it
       this.confirmed = true; this.field = 'name'; this.shift = false;
     } else {
       this.confirmed = false;
@@ -1190,7 +1185,7 @@ var NameEntry = {
   /* "Choose domain". Email or display name is needed. A typed email has normally been checked
      while typing; if not (tapped before the check), it is checked now, with the same prompts:
        registered     → "Welcome, <first name> — is this you?"
-       not registered → "This email isn't registered yet." (Register now / Just play)
+       not registered → "This email isn't registered yet." (Register now / Fix my email): no play until registered
        Hub unreachable, or not signed in → play anyway; the email is kept unconfirmed for later matching
      Standalone (no Hub) the typed email is kept unconfirmed. */
   submit: function () {
@@ -1201,7 +1196,7 @@ var NameEntry = {
       $('name-msg').textContent = 'Finish your email address (e.g. name@company.com), or delete it to play with just a name.';
       return;
     }
-    if (this.confirmed || this.declined === email || !Hub.enabled()) return this.play();
+    if (this.confirmed || !Hub.enabled()) return this.play();
     if (this.checking) return;
     this.checking = true; $('name-msg').textContent = ''; $('name-go').textContent = 'Checking…'; this.paint();
     var seq = ++this.lookupSeq; clearTimeout(this.lookupTimer);
@@ -1279,7 +1274,7 @@ var Picker = {
     if (!player) return Screens.toAttract();
     var s = Store.settings, tiles = '', ds = Store.enabledDomains();
     $('pk-me').innerHTML = '<div class="av">' + esc(player.displayName.slice(0, 2).toUpperCase()) + '</div>' + esc(player.displayName);
-    $('pk-sub').innerHTML = 'One domain per round, <b>' + s.roundSeconds + ' seconds</b>, ' + s.lives + ' lives · Easy → Moderate → Difficult';
+    $('pk-sub').innerHTML = 'Play to your strength: pick the domain where you’ll score the most, and chase today’s top spot.';
     ds.forEach(function (d) {
       var n = Store.questionsFor(d.id).length;
       tiles += '<button class="tile" data-d="' + esc(d.id) + '"' + (n ? '' : ' disabled') + '><div class="ring" style="box-shadow:inset 0 0 0 0.4rem ' + d.accent + ';color:' + d.accent + '">' + icon(d.icon) + '</div>' +

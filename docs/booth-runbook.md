@@ -39,7 +39,7 @@
    - **Results waiting to send:** should drop to 0 when the network is up.
    - **Remove a leaderboard name** or **Reset today:** for tidying the leaderboard.
 
-**Players type their email or just a display name.** Email is optional (the keyboard has **@** and **.com** keys). A registered email is recognised by itself: the game greets them by first name and fills in the name. An email that isn't registered shows **Register now** (the form opens inside the game, back playing within a minute) or **Just play**.
+**Players type their email or just a display name.** Email is optional (the keyboard has **@** and **.com** keys). A registered email is recognised by itself: the game greets them by first name and fills in the name. An email that isn't registered must register first: **Register now** opens the form inside the game, and they're back playing within a minute. The home screen starts only from **Play now**.
 
 ## 3. The team at the booth
 
