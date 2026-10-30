@@ -12,11 +12,13 @@ function columns(i: InteractionInput) {
     domain_tags: null as string[] | null, interest_level: null as string | null, next_step: null as string | null,
     follow_up_owner: null as string | null, follow_up_date: null as string | null,
     podcast_topic: null as string | null, podcast_consent_signed: null as boolean | null, demo_name: null as string | null,
+    minutes: null as string | null,
   };
   switch (i.type) {
     case 'conversation':
       return { ...none, met_by: i.metBy, problem_statement: i.problemStatement, domain_tags: i.domainTags,
-        interest_level: i.interestLevel, next_step: i.nextStep, follow_up_owner: i.followUpOwner, follow_up_date: i.followUpDate };
+        interest_level: i.interestLevel, next_step: i.nextStep, follow_up_owner: i.followUpOwner, follow_up_date: i.followUpDate,
+        minutes: i.minutes };
     case 'podcast':
       return { ...none, podcast_topic: i.podcastTopic, podcast_consent_signed: i.podcastConsentSigned, notes: i.notes };
     case 'demo':
@@ -35,10 +37,10 @@ export async function createInteraction(user: SessionUser, input: InteractionInp
     if (!exists) return { ok: false as const, reason: 'not_registered' as const };
     const [row] = await tx<{ id: string }[]>`
       insert into hub.interactions (visitor_id, type, notes, met_by, problem_statement, domain_tags, interest_level, next_step,
-                                    follow_up_owner, follow_up_date, podcast_topic, podcast_consent_signed, demo_name, created_by)
+                                    follow_up_owner, follow_up_date, podcast_topic, podcast_consent_signed, demo_name, minutes, created_by)
       values (${input.visitorId}, ${input.type}, ${c.notes}, ${c.met_by}, ${c.problem_statement},
               ${c.domain_tags === null ? null : tx.array(c.domain_tags)}::text[], ${c.interest_level}, ${c.next_step},
-              ${c.follow_up_owner}, ${c.follow_up_date}::date, ${c.podcast_topic}, ${c.podcast_consent_signed}, ${c.demo_name}, ${user.id})
+              ${c.follow_up_owner}, ${c.follow_up_date}::date, ${c.podcast_topic}, ${c.podcast_consent_signed}, ${c.demo_name}, ${c.minutes}, ${user.id})
       returning id`;
     return { ok: true as const, id: row.id };
   });
@@ -52,10 +54,16 @@ export async function updateInteraction(user: SessionUser, id: string, input: In
       problem_statement = ${c.problem_statement}, domain_tags = ${c.domain_tags === null ? null : tx.array(c.domain_tags)}::text[],
       interest_level = ${c.interest_level}, next_step = ${c.next_step}, follow_up_owner = ${c.follow_up_owner},
       follow_up_date = ${c.follow_up_date}::date, podcast_topic = ${c.podcast_topic},
-      podcast_consent_signed = ${c.podcast_consent_signed}, demo_name = ${c.demo_name}, updated_by = ${user.id}
+      podcast_consent_signed = ${c.podcast_consent_signed}, demo_name = ${c.demo_name}, minutes = ${c.minutes}, updated_by = ${user.id}
     where id = ${id} and visitor_id = ${input.visitorId}
     returning id`);
   return rows.length === 1;
+}
+
+/** The follow-up date already stored on an interaction (an edit may keep a date that has since passed). */
+export async function storedFollowUpDate(user: SessionUser, id: string): Promise<string | null> {
+  const [r] = await asUser(user, (tx) => tx<{ d: string | null }[]>`select to_char(follow_up_date, 'YYYY-MM-DD') as d from hub.interactions where id = ${id}`);
+  return r?.d ?? null;
 }
 
 export async function deleteInteraction(user: SessionUser, id: string): Promise<boolean> {

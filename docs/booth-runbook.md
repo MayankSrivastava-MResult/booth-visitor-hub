@@ -44,7 +44,10 @@
 ## 3. The team at the booth
 
 - **Sign in on your own phone once.** It lasts 7 days, and you can be signed in on several devices.
-- **Log every conversation:** **Log interaction** → search by name, company or email → pick the visitor → **Conversation** → Hot, Warm or Cold → **Save**. It takes under 30 seconds.
+- **Log every conversation:** **Log interaction** → search by name, company or email → pick the visitor → **Conversation** → Hot, Warm or Cold. It takes under 30 seconds.
+  - **It saves itself** about a second after you stop typing ("Saved automatically at …" at the bottom), so you can stop at any point. **Save and finish** closes it.
+  - **Minutes:** bold, italic, underline, numbered and bulleted lists. Tap **Dictate** and speak: each sentence is added as a new line; tap **Stop** when done. Dictation uses the phone's or browser's own speech service (Safari: Apple; Chrome: Google).
+  - A **follow-up date** can't be in the past.
 - **Someone on the organisers' list** (marked *pre-seeded*) has no consent recorded yet. When you meet them, tap **Complete their registration**, check the details with them, add their email if they want, and have them agree to the notice.
   Use **Podcast** for guests, **Demo** for demos seen, **Other** for anything else.
 - **A visitor without a phone:** **Register visitor**, and fill it in together. Ask them to read and agree to the consent text.

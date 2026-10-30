@@ -3,12 +3,16 @@
  *   1. find the visitor: type part of their name, company or email and tap them in the list
  *      (nobody found → "Register them now", which comes back here afterwards)
  *   2. pick the type: Conversation / Podcast guest / Demo seen / Other
- *   3. fill the few fields for that type and save.
- * "Met by" defaults to the signed-in person. People pre-seeded from the organisers' list
+ *   3. fill the few fields for that type. A new entry saves itself as it is filled in
+ *      (about a second after typing stops, and when the page is left), so nothing is lost
+ *      if there's no time to reach the end; "Save and finish" closes it.
+ * Conversations have meeting minutes: formatted text with a dictation mic (RichTextEditor).
+ * A follow-up date can't be in the past. "Met by" defaults to the signed-in person. People pre-seeded from the organisers' list
  * show "not registered yet", with a link to complete their registration. */
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { callApi } from './api';
+import RichTextEditor from './RichTextEditor';
 
 export type TeamOption = { id: string; displayName: string };
 export type Lists = { podcastTopics: string[]; demos: string[]; domainTags: string[] };
@@ -18,7 +22,7 @@ type Who = { id: string; email: string | null; fullName: string; company: string
 export type InteractionValues = {
   type: Type; metBy: string; problemStatement: string; domainTags: string[]; interestLevel: '' | 'hot' | 'warm' | 'cold';
   nextStep: string; followUpOwner: string; followUpDate: string; podcastTopic: string; podcastConsentSigned: boolean | null;
-  demoName: string; notes: string;
+  demoName: string; notes: string; minutes: string;
 };
 
 type Props = {
@@ -37,10 +41,37 @@ const TYPES: { k: Type; label: string }[] = [
 ];
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/;
 const role = (w: Who) => [w.jobTitle, w.company].filter(Boolean).join(' · ');
+const AUTOSAVE_MS = 1200;
+const istToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+const hasText = (html: string) => !!html.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, '').trim();
+
+/** Worth saving on its own: anything typed or picked beyond the type itself. */
+function hasContent(v: InteractionValues) {
+  switch (v.type) {
+    case 'conversation': return !!(v.interestLevel || v.problemStatement.trim() || v.domainTags.length || hasText(v.minutes)
+      || v.nextStep.trim() || v.followUpOwner || v.followUpDate);
+    case 'podcast': return !!(v.podcastTopic && v.podcastConsentSigned !== null);
+    case 'demo': return !!v.demoName;
+    case 'other': return !!v.notes.trim();
+  }
+}
+
+function bodyFor(v: InteractionValues, visitorId: string) {
+  switch (v.type) {
+    case 'conversation': return { type: v.type, visitorId, metBy: v.metBy, problemStatement: v.problemStatement, domainTags: v.domainTags,
+      interestLevel: v.interestLevel || null, minutes: hasText(v.minutes) ? v.minutes : null, nextStep: v.nextStep,
+      followUpOwner: v.followUpOwner || null, followUpDate: v.followUpDate || null };
+    case 'podcast': return { type: v.type, visitorId, podcastTopic: v.podcastTopic, notes: v.notes, podcastConsentSigned: v.podcastConsentSigned ?? undefined };
+    case 'demo': return { type: v.type, visitorId, demoName: v.demoName, notes: v.notes };
+    case 'other': return { type: v.type, visitorId, notes: v.notes };
+  }
+}
+
+type SaveState = { kind: 'idle' | 'saving' | 'saved' | 'invalid' | 'offline'; at?: Date; text?: string };
 
 const blank = (me: string): InteractionValues => ({
   type: 'conversation', metBy: me, problemStatement: '', domainTags: [], interestLevel: '', nextStep: '', followUpOwner: '',
-  followUpDate: '', podcastTopic: '', podcastConsentSigned: null, demoName: '', notes: '',
+  followUpDate: '', podcastTopic: '', podcastConsentSigned: null, demoName: '', notes: '', minutes: '',
 });
 
 export default function InteractionForm({ me, team, lists, initialVisitorId = '', existing, onSaved }: Props) {
@@ -52,7 +83,14 @@ export default function InteractionForm({ me, team, lists, initialVisitorId = ''
   const [fields, setFields] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<{ kind: 'ok' | 'bad'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>({ kind: 'idle' });
+  const [editorKey, setEditorKey] = useState(0);   // bumped to load the minutes editor afresh
   const seq = useRef(0);
+  // Autosave (new entries only). Refs, so saves queued from timers and page events see the latest values.
+  const vRef = useRef(v), whoRef = useRef(who);
+  const draftId = useRef<string | null>(null), dirty = useRef(false), chain = useRef<Promise<boolean>>(Promise.resolve(true));
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  vRef.current = v; whoRef.current = who;
 
   // A visitor handed in by id (after registering, or from their visitor page) is selected straight away.
   useEffect(() => {
@@ -82,40 +120,100 @@ export default function InteractionForm({ me, team, lists, initialVisitorId = ''
   const set = <K extends keyof InteractionValues>(k: K, val: InteractionValues[K]) => {
     setV((cur) => ({ ...cur, [k]: val }));
     if (fields[k]) setFields((f) => ({ ...f, [k]: '' }));
+    dirty.current = true;
   };
 
-  function body() {
-    const e = who!.id;
-    switch (v.type) {
-      case 'conversation': return { type: v.type, visitorId: e, metBy: v.metBy, problemStatement: v.problemStatement, domainTags: v.domainTags,
-        interestLevel: v.interestLevel || undefined, nextStep: v.nextStep, followUpOwner: v.followUpOwner || null, followUpDate: v.followUpDate || null };
-      case 'podcast': return { type: v.type, visitorId: e, podcastTopic: v.podcastTopic, notes: v.notes, podcastConsentSigned: v.podcastConsentSigned ?? undefined };
-      case 'demo': return { type: v.type, visitorId: e, demoName: v.demoName, notes: v.notes };
-      case 'other': return { type: v.type, visitorId: e, notes: v.notes };
-    }
+  /** Save the current values of a new entry (create it the first time, then update it).
+   *  Saves run one after another, so the first one's id is known before the next. */
+  function persist(force = false): Promise<boolean> {
+    chain.current = chain.current.then(async () => {
+      const w = whoRef.current, cur = vRef.current;
+      if (!w || (!dirty.current && !force)) return true;
+      if (!force && !draftId.current && !hasContent(cur)) return true;
+      dirty.current = false;
+      setSaveState({ kind: 'saving' });
+      let res: Response | null = null;
+      const body = JSON.stringify(bodyFor(cur, w.id));
+      try {
+        res = await fetch(draftId.current ? `/api/interactions/${draftId.current}` : '/api/interactions', {
+          method: draftId.current ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body, credentials: 'same-origin',
+          keepalive: body.length < 60000,   // still sent if the page is closing (browsers cap that at 64 KB)
+        });
+      } catch { /* offline */ }
+      const data = res ? await res.json().catch(() => ({})) : {};
+      if (res?.ok) {
+        if (!draftId.current && data.id) draftId.current = data.id;
+        setSaveState({ kind: 'saved', at: new Date() });
+        return true;
+      }
+      dirty.current = true;
+      if (res && res.status === 400) {
+        setFields(data.fields ?? {});
+        const first = Object.values((data.fields ?? {}) as Record<string, string>).find(Boolean);
+        setSaveState({ kind: 'invalid', text: first ?? data.error ?? 'Check the highlighted fields.' });
+      } else {
+        setSaveState({ kind: 'offline', text: res ? (data.error ?? `Error ${res.status}`) : 'No connection' });
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => persist(), 5000);   // try again shortly
+      }
+      return false;
+    });
+    return chain.current;
+  }
+
+  // New entries save themselves shortly after each change.
+  useEffect(() => {
+    if (existing || !who || !dirty.current) return;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => persist(), AUTOSAVE_MS);
+    return () => { if (timer.current) clearTimeout(timer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v, who]);
+
+  // Leaving the page or locking the phone: save what's there now.
+  useEffect(() => {
+    if (existing) return;
+    const flush = () => { if (dirty.current) persist(); };
+    const onHide = () => { if (document.visibilityState === 'hidden') flush(); };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onHide);
+    return () => { window.removeEventListener('pagehide', flush); document.removeEventListener('visibilitychange', onHide); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function startFresh() {
+    if (timer.current) clearTimeout(timer.current);
+    draftId.current = null; dirty.current = false;
+    setV(blank(me.id)); setEditorKey((k) => k + 1); setSaveState({ kind: 'idle' }); setFields({});
   }
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!who || busy) return;
     setBusy(true); setMsg(null); setFields({});
-    const res = existing
-      ? await callApi(`/api/interactions/${existing.id}`, 'PATCH', body())
-      : await callApi('/api/interactions', 'POST', body());
-    setBusy(false);
-    if (res.ok) {
-      if (existing) { onSaved?.(); return; }
-      setMsg({ kind: 'ok', text: `Saved for ${who.fullName}.` });
-      setV(blank(me.id));
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (existing) {
+      const res = await callApi(`/api/interactions/${existing.id}`, 'PATCH', bodyFor(v, who.id));
+      setBusy(false);
+      if (res.ok) { onSaved?.(); return; }
+      if (res.data.fields) setFields(res.data.fields);
+      setMsg({ kind: 'bad', text: res.data.error ?? 'Could not save. Try again.' });
       return;
     }
-    if (res.data.fields) setFields(res.data.fields);
-    setMsg({ kind: 'bad', text: res.data.error ?? 'Could not save. Try again.' });
+    if (timer.current) clearTimeout(timer.current);
+    const ok = await persist(!draftId.current);   // nothing saved yet: save it now even if it's just "met"
+    setBusy(false);
+    if (ok) {
+      setMsg({ kind: 'ok', text: `Saved for ${who.fullName}.` });
+      startFresh();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   }
 
   function pick(w: Who) { setWho(w); setResults([]); setSearch('idle'); setMsg(null); }
-  function newVisitor() { setQuery(''); setWho(null); setResults([]); setSearch('idle'); setMsg(null); setV(blank(me.id)); }
+  async function newVisitor() {
+    if (dirty.current) await persist();
+    setQuery(''); setWho(null); setResults([]); setSearch('idle'); setMsg(null); startFresh();
+  }
 
   const err = (k: string) => (fields[k] ? <span className="err">{fields[k]}</span> : null);
   const q = query.trim();
@@ -180,7 +278,7 @@ export default function InteractionForm({ me, team, lists, initialVisitorId = ''
           </div>
 
           {v.type === 'conversation' && <>
-            <label className="field">Interest
+            <label className="field">Interest <span className="opt">(optional)</span>
               <div className="seg" role="radiogroup" aria-label="Interest level">
                 {(['hot', 'warm', 'cold'] as const).map((l) => (
                   <button type="button" key={l} role="radio" aria-checked={v.interestLevel === l} className={v.interestLevel === l ? 'on' : ''}
@@ -203,6 +301,11 @@ export default function InteractionForm({ me, team, lists, initialVisitorId = ''
               </div>
               {err('domainTags')}
             </div>
+            <div className="field"><span>Minutes <span className="opt">(optional)</span></span>
+              <RichTextEditor label="Minutes" value={v.minutes} resetKey={`${existing?.id ?? ''}${editorKey}`}
+                onChange={(html) => set('minutes', html)} />
+              {err('minutes')}
+            </div>
             <label className="field">Next step <span className="opt">(optional)</span>
               <input type="text" value={v.nextStep} onChange={(e) => set('nextStep', e.target.value)} />
               {err('nextStep')}
@@ -222,7 +325,8 @@ export default function InteractionForm({ me, team, lists, initialVisitorId = ''
               </label>
             </div>
             <label className="field">Follow-up date <span className="opt">(optional)</span>
-              <input type="date" value={v.followUpDate} onChange={(e) => set('followUpDate', e.target.value)} />
+              <input type="date" value={v.followUpDate} min={existing?.values.followUpDate && existing.values.followUpDate < istToday()
+                ? existing.values.followUpDate : istToday()} onChange={(e) => set('followUpDate', e.target.value)} />
               {err('followUpDate')}
             </label>
           </>}
@@ -270,7 +374,15 @@ export default function InteractionForm({ me, team, lists, initialVisitorId = ''
           )}
 
           {msg?.kind === 'bad' && <p className="notice bad" role="alert">{msg.text}</p>}
-          <button className="btn block" type="submit" disabled={busy}>{busy ? 'Saving…' : existing ? 'Save changes' : 'Save'}</button>
+          {!existing && saveState.kind !== 'idle' && (
+            <p className={`save-state${saveState.kind === 'invalid' || saveState.kind === 'offline' ? ' bad' : ''}`} role="status">
+              {saveState.kind === 'saving' && 'Saving…'}
+              {saveState.kind === 'saved' && `Saved automatically at ${saveState.at!.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`}
+              {saveState.kind === 'invalid' && `Not saved yet: ${saveState.text}`}
+              {saveState.kind === 'offline' && `Not saved yet (${saveState.text}). Trying again…`}
+            </p>
+          )}
+          <button className="btn block" type="submit" disabled={busy}>{busy ? 'Saving…' : existing ? 'Save changes' : 'Save and finish'}</button>
         </div>
       )}
     </form>

@@ -172,6 +172,38 @@ describe('interactions', () => {
     expect(r.status).toBe(404);
     expect((await r.json()).notRegistered).toBe(true);
   });
+  it('saves a conversation as it is typed: no interest needed, minutes cleaned, then updated', async () => {
+    const draft = await interactionsRoute.POST(req('/api/interactions', { method: 'POST', cookie: staffCookie, body: {
+      type: 'conversation', visitorId: meeraId, metBy: staffId, minutes: '<div><b onclick="x()">Budget</b> agreed</div><script>alert(1)</script>' } }));
+    expect(draft.status).toBe(201);
+    const id = (await draft.json()).id;
+    const [row] = await owner`select interest_level, minutes from hub.interactions where id = ${id}`;
+    expect(row).toEqual({ interest_level: null, minutes: '<div><b>Budget</b> agreed</div>' });
+    const body = { type: 'conversation', visitorId: meeraId, metBy: staffId, interestLevel: 'warm',
+      minutes: '<div><b>Budget</b> agreed</div><ol><li>Send deck</li></ol>' };
+    expect((await interactionRoute.PATCH(req(`/api/interactions/${id}`, { method: 'PATCH', cookie: staffCookie, body }), params({ id }))).status).toBe(200);
+    const [after] = await owner`select interest_level, minutes from hub.interactions where id = ${id}`;
+    expect(after).toEqual({ interest_level: 'warm', minutes: '<div><b>Budget</b> agreed</div><ol><li>Send deck</li></ol>' });
+    // only conversations have minutes (database rule)
+    await expect(owner`update hub.interactions set type = 'other', notes = 'x', met_by = null, interest_level = null where id = ${id}`).rejects.toThrow(/check/);
+    await owner`delete from hub.interactions where id = ${id}`;
+  });
+  it('a follow-up date must be today or later; an edit may keep a date that has since passed', async () => {
+    const day = (offset: number) => new Date(Date.now() + offset * 864e5).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const conv = (followUpDate: string) => ({ type: 'conversation', visitorId: meeraId, metBy: staffId, followUpDate });
+    const past = await interactionsRoute.POST(req('/api/interactions', { method: 'POST', cookie: staffCookie, body: conv(day(-1)) }));
+    expect(past.status).toBe(400);
+    expect((await past.json()).fields).toEqual({ followUpDate: 'Pick today or a later date.' });
+    const today = await interactionsRoute.POST(req('/api/interactions', { method: 'POST', cookie: staffCookie, body: conv(day(0)) }));
+    expect(today.status).toBe(201);
+    const id = (await today.json()).id;
+    await owner`update hub.interactions set follow_up_date = ${day(-3)}::date where id = ${id}`;   // time passes
+    const patch = (d: string) => interactionRoute.PATCH(req(`/api/interactions/${id}`, { method: 'PATCH', cookie: staffCookie, body: conv(d) }), params({ id }));
+    expect((await patch(day(-3))).status).toBe(200);     // unchanged: fine
+    expect((await patch(day(-2))).status).toBe(400);     // moved to another past date: no
+    expect((await patch(day(7))).status).toBe(200);
+    await owner`delete from hub.interactions where id = ${id}`;
+  });
   it('rejects domain tags that are not in the list', async () => {
     const r = await interactionsRoute.POST(req('/api/interactions', { method: 'POST', cookie: staffCookie, body: {
       type: 'conversation', visitorId: meeraId, metBy: staffId, domainTags: ['Made Up'], interestLevel: 'warm' } }));
@@ -323,6 +355,9 @@ describe('Excel export', () => {
       .find((r) => r['Email'] === 'meera@example.com')!;
     expect(meera).toMatchObject({ Conversations: 1, Podcast: 1, 'Game rounds': 1, 'Best game score': 250, 'Latest interest': 'warm',
       'Latest next step': 'Call on Monday', 'Marketing opt-in': 'yes' });
+    const convHeader = (wb.getWorksheet('Conversations')!.getRow(1).values as string[]).slice(1);
+    expect(convHeader.indexOf('Minutes')).toBe(convHeader.indexOf('Interest') + 1);   // minutes before next step
+    expect(convHeader.indexOf('Next step')).toBe(convHeader.indexOf('Minutes') + 1);
     const unmatched = wb.getWorksheet('Unmatched emails')!;
     expect(unmatched.getColumn(1).values).toContain('unreg-9@example.com');
     expect(unmatched.getColumn(1).values).not.toContain('meera@example.com');

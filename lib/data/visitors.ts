@@ -108,7 +108,8 @@ export type TimelineItem =
       createdBy: string; createdByName: string; notes: string | null;
       metByName: string | null; metBy: string | null; problemStatement: string | null; domainTags: string[] | null;
       interestLevel: string | null; nextStep: string | null; followUpOwner: string | null; followUpOwnerName: string | null;
-      followUpDate: string | null; podcastTopic: string | null; podcastConsentSigned: boolean | null; demoName: string | null }
+      followUpDate: string | null; podcastTopic: string | null; podcastConsentSigned: boolean | null; demoName: string | null;
+      minutes: string | null }
   | { kind: 'game'; roundId: string; at: Date; displayName: string; domainName: string; score: number;
       correct: number; questions: number; emailConfirmed: boolean };
 
@@ -131,7 +132,8 @@ export async function visitorDetail(user: SessionUser, id: string): Promise<{ vi
              i.domain_tags as "domainTags", i.interest_level as "interestLevel", i.next_step as "nextStep",
              i.follow_up_owner as "followUpOwner", fo.display_name as "followUpOwnerName",
              to_char(i.follow_up_date, 'YYYY-MM-DD') as "followUpDate",
-             i.podcast_topic as "podcastTopic", i.podcast_consent_signed as "podcastConsentSigned", i.demo_name as "demoName"
+             i.podcast_topic as "podcastTopic", i.podcast_consent_signed as "podcastConsentSigned", i.demo_name as "demoName",
+             i.minutes
       from hub.interactions i
       join hub.app_users cb on cb.id = i.created_by
       left join hub.app_users mb on mb.id = i.met_by

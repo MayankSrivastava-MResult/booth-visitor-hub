@@ -8,6 +8,7 @@
 import ExcelJS from 'exceljs';
 import { asUser, type Tx } from '../db';
 import type { SessionUser } from '../session';
+import { minutesToText } from '../rich-text';
 import { istRange } from '../time';
 
 type Col = { header: string; key: string; width?: number };
@@ -51,7 +52,7 @@ async function queries(tx: Tx, start: Date | null, end: Date | null) {
     order by i.occurred_at`);
 
   const conversations = await base('conversation', `mb.display_name as met_by, i.problem_statement,
-    array_to_string(i.domain_tags, ', ') as domain_tags, i.interest_level, i.next_step, fo.display_name as follow_up_owner,
+    array_to_string(i.domain_tags, ', ') as domain_tags, i.interest_level, i.minutes, i.next_step, fo.display_name as follow_up_owner,
     to_char(i.follow_up_date, 'YYYY-MM-DD') as follow_up_date`);
   const podcast = await base('podcast', `v.linkedin_url, i.podcast_topic as topic,
     case when i.podcast_consent_signed then 'yes' else 'no' end as consent_form_signed, i.notes`);
@@ -112,8 +113,9 @@ export async function buildExport(admin: SessionUser, from?: string | null, to?:
     c('Other notes', 'other_notes', 9), c('Game rounds', 'game_rounds', 9), c('Best game score', 'best_score', 10),
     c('Latest interest', 'latest_interest', 10), c('Latest next step', 'latest_next_step', 30)], d.visitors);
   sheet('Conversations', [c('When (IST)', 'at'), ...WHO, c('Met by', 'met_by'), c('Problem statement', 'problem_statement', 40),
-    c('Domain tags', 'domain_tags', 24), c('Interest', 'interest_level', 9), c('Next step', 'next_step', 30),
-    c('Follow-up owner', 'follow_up_owner'), c('Follow-up date', 'follow_up_date', 12), c('Logged by', 'logged_by')], d.conversations);
+    c('Domain tags', 'domain_tags', 24), c('Interest', 'interest_level', 9), c('Minutes', 'minutes', 60), c('Next step', 'next_step', 30),
+    c('Follow-up owner', 'follow_up_owner'), c('Follow-up date', 'follow_up_date', 12), c('Logged by', 'logged_by')],
+    d.conversations.map((r) => ({ ...r, minutes: minutesToText(r.minutes as string | null) })));
   sheet('Podcast guests', [c('When (IST)', 'at'), ...WHO, c('LinkedIn', 'linkedin_url', 30), c('Topic', 'topic', 28),
     c('Consent form signed', 'consent_form_signed', 10), c('Notes', 'notes', 40), c('Logged by', 'logged_by')], d.podcast);
   sheet('Demos', [c('When (IST)', 'at'), ...WHO, c('Demo', 'demo', 28), c('Notes', 'notes', 40), c('Logged by', 'logged_by')], d.demos);

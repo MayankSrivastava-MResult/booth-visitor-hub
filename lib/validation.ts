@@ -2,6 +2,7 @@
  * constraints as a backstop, but these give friendly per-field messages. */
 import { z } from 'zod';
 import { MIN_PASSWORD_LENGTH } from './password';
+import { minutesEmpty, sanitizeMinutes } from './rich-text';
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -83,7 +84,11 @@ export const interactionSchema = z.discriminatedUnion('type', [
     metBy: uuid,
     problemStatement: optionalText(4000),
     domainTags: z.array(z.string().trim().min(1).max(60)).max(20).optional().default([]),
-    interestLevel: z.enum(['hot', 'warm', 'cold'], { error: 'Pick Hot, Warm or Cold.' }),
+    // optional: a conversation is saved while it is typed, and the interest is often picked last
+    interestLevel: z.enum(['hot', 'warm', 'cold'], { error: 'Pick Hot, Warm or Cold.' }).optional().nullable().transform((v) => v ?? null),
+    minutes: z.string().max(60000, 'Minutes are too long.').optional().nullable()
+      .transform((v) => (v && !minutesEmpty(v) ? sanitizeMinutes(v) : null))
+      .refine((v) => v === null || v.length <= 20000, 'Minutes are too long (about 20,000 characters max).'),
     nextStep: optionalText(1000),
     followUpOwner: uuid.optional().nullable().transform((v) => v ?? null),
     followUpDate: z.string().regex(DATE_RE, 'Use a valid date.').optional().nullable().or(z.literal('')).transform((v) => v || null),
@@ -108,6 +113,12 @@ export const interactionSchema = z.discriminatedUnion('type', [
   }),
 ]);
 export type InteractionInput = z.infer<typeof interactionSchema>;
+
+/** A follow-up date must be today or later (IST). `keep` = a date already stored, which an edit may leave as it is. */
+export function followUpDateError(i: InteractionInput, today: string, keep: string | null = null): Record<string, string> | null {
+  if (i.type !== 'conversation' || !i.followUpDate || i.followUpDate >= today || i.followUpDate === keep) return null;
+  return { followUpDate: 'Pick today or a later date.' };
+}
 
 /** User management. */
 export const newUserSchema = z.object({

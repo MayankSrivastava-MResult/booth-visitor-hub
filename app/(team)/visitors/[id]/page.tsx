@@ -73,7 +73,7 @@ export default async function VisitorPage({ params }: { params: Promise<{ id: st
                     values={{ type: t.type, metBy: t.metBy ?? user.id, problemStatement: t.problemStatement ?? '', domainTags: t.domainTags ?? [],
                       interestLevel: (t.interestLevel ?? '') as '' | 'hot' | 'warm' | 'cold', nextStep: t.nextStep ?? '',
                       followUpOwner: t.followUpOwner ?? '', followUpDate: t.followUpDate ?? '', podcastTopic: t.podcastTopic ?? '',
-                      podcastConsentSigned: t.podcastConsentSigned, demoName: t.demoName ?? '', notes: t.notes ?? '' }} />
+                      podcastConsentSigned: t.podcastConsentSigned, demoName: t.demoName ?? '', notes: t.notes ?? '', minutes: t.minutes ?? '' }} />
                 : null} />)}
           </div>
         )}
@@ -101,6 +101,8 @@ function TimelineRow({ t, canEdit, actions }: { t: TimelineItem; canEdit: boolea
       </div>
       {t.type === 'conversation' && <>
         {t.problemStatement && <p>{t.problemStatement}</p>}
+        {/* minutes are stored with only simple formatting tags, no attributes (lib/rich-text.ts) */}
+        {t.minutes && <div className="minutes" dangerouslySetInnerHTML={{ __html: t.minutes }} />}
         <span className="small muted">Met by {t.metByName}{t.domainTags?.length ? ` · ${t.domainTags.join(', ')}` : ''}</span>
         {t.nextStep && <span className="small"><b>Next step:</b> {t.nextStep}</span>}
         {(t.followUpOwnerName || t.followUpDate) && <span className="small"><b>Follow-up:</b> {t.followUpOwnerName ?? '—'}{t.followUpDate ? ` by ${t.followUpDate}` : ''}</span>}

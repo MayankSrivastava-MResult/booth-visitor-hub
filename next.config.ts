@@ -53,7 +53,7 @@ const nextConfig: NextConfig = {
     return [{ source: '/play', destination: '/pharma-ninja.html' }];
   },
   async headers() {
-    const perms = { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' };
+    const perms = { key: 'Permissions-Policy', value: 'camera=(), microphone=(self), geolocation=()' };   // microphone: dictating meeting minutes
     return [
       // Hub pages: everything except the game files and /register (below). Never shown inside a frame.
       { source: '/', headers: [...common, { key: 'X-Frame-Options', value: 'DENY' }, { key: 'Content-Security-Policy', value: hubCsp }, perms] },

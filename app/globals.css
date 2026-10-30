@@ -171,3 +171,20 @@ dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; ma
   border-top: 1px solid var(--line); padding: 12px 4px; font: inherit; color: inherit; cursor: pointer; min-height: 56px; }
 .pick-list > .pick:first-child { border-top: 0; }
 .pick-list > .pick:active { background: var(--orange-soft); }
+
+/* Minutes editor (Log interaction) and the minutes on the visitor timeline */
+.rte { border: 1.5px solid var(--line); border-radius: 12px; background: var(--white); overflow: hidden; }
+.rte:focus-within { border-color: var(--charcoal); }
+.rte-bar { display: flex; flex-wrap: nowrap; gap: 2px; padding: 6px; border-bottom: 1px solid var(--line); background: #F7F7F5; }
+.rte-bar button { font: inherit; font-size: 15px; min-width: 36px; padding: 0 6px; height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); cursor: pointer; }
+.rte-bar button.on { background: var(--charcoal); color: var(--white); }
+.rte-bar .rte-mic { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; font-weight: 600; background: var(--orange-soft); }
+.rte-bar .rte-mic.live { background: var(--danger); color: var(--white); animation: micPulse 1.4s ease-in-out infinite; }
+@keyframes micPulse { 50% { opacity: 0.75; } }
+.rte-area { font-weight: 400; min-height: 140px; max-height: 50vh; overflow-y: auto; padding: 10px 12px; font-size: 16px; line-height: 1.45; outline: none; }
+.rte-area:empty::before { content: 'Type, or tap Dictate and speak'; color: var(--ink-2); }
+.rte-area ol, .rte-area ul, .minutes ol, .minutes ul { margin: 4px 0; padding-left: 24px; }
+.rte .hint, .rte .err { margin: 0; padding: 4px 12px 8px; }
+.minutes { font-size: 14px; line-height: 1.45; background: #F7F7F5; border-radius: 10px; padding: 8px 12px; }
+.save-state { font-size: 13px; color: var(--ink-2); }
+.save-state.bad { color: var(--danger); }
