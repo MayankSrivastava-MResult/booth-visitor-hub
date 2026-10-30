@@ -1,8 +1,8 @@
 # MResult Booth Visitor Hub
 
-One hosted system for MResult's booth (Global Pharma Partnering Summit 2026, Booth G1): every visitor is identified by
-their **email address**, and every touchpoint is recorded against it: registration, conversations,
-podcast guests, demos, notes and Pharma Ninja game rounds. Admins export everything to Excel.
+One hosted system for MResult's booth (Global Pharma Partnering Summit 2026, Booth G1): every visitor has a record
+(email optional; the organisers' list can be imported in advance), and every touchpoint is recorded against it:
+registration, conversations, podcast guests, demos, notes and Pharma Ninja game rounds (matched by the email the player typed). Admins export everything to Excel.
 
 Next.js (App Router, TypeScript) on Vercel; Postgres on Supabase (used as plain Postgres, no Supabase Auth).
 

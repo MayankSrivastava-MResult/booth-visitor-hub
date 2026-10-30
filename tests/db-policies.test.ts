@@ -135,14 +135,26 @@ describe('hub_user (signed-in team members)', () => {
     expect(ok).toHaveLength(1);
   });
 
+  it('only admins import (pre-seeded, no consent); staff cannot', async () => {
+    const pre = (who: 'staff1' | 'admin') => asUser(as(who), (tx) => tx`insert into hub.visitors (full_name, company, consent_given, registration_mode, created_by)
+      values ('Pre Seeded', 'Org', false, 'import', ${ids[who]}) returning id`);
+    await expect(pre('staff1')).rejects.toThrow(/row-level security/);
+    expect(await pre('admin')).toHaveLength(1);
+    // a self or staff registration still needs consent and a job title
+    await expect(owner`insert into hub.visitors (full_name, company, consent_given, registration_mode) values ('No Consent', 'Org', false, 'self')`)
+      .rejects.toThrow(/check constraint/);
+    await expect(owner`insert into hub.visitors (full_name, company, consent_given, consent_version, consent_at, registration_mode)
+      values ('No Title', 'Org', true, 1, now(), 'self')`).rejects.toThrow(/check constraint/);
+  });
+
   it('staff edit/delete only their own interactions; admin any', async () => {
-    const [i] = await asUser(as('staff1'), (tx) => tx`insert into hub.interactions (visitor_email, type, notes, created_by)
-      values ('staff-01@example.com', 'other', 'hello', ${ids.staff1}) returning id`);
+    const [i] = await asUser(as('staff1'), (tx) => tx`insert into hub.interactions (visitor_id, type, notes, created_by)
+      values ((select id from hub.visitors where email = 'staff-01@example.com'), 'other', 'hello', ${ids.staff1}) returning id`);
     expect((await asUser(as('staff2'), (tx) => tx`update hub.interactions set notes = 'x' where id = ${i.id} returning 1`))).toHaveLength(0);
     expect((await asUser(as('staff2'), (tx) => tx`delete from hub.interactions where id = ${i.id} returning 1`))).toHaveLength(0);
     expect((await asUser(as('staff1'), (tx) => tx`update hub.interactions set notes = 'edited' where id = ${i.id} returning 1`))).toHaveLength(1);
-    await expect(asUser(as('staff2'), (tx) => tx`insert into hub.interactions (visitor_email, type, notes, created_by)
-      values ('staff-01@example.com', 'other', 'pretend', ${ids.staff1})`)).rejects.toThrow(/row-level security/);
+    await expect(asUser(as('staff2'), (tx) => tx`insert into hub.interactions (visitor_id, type, notes, created_by)
+      values ((select id from hub.visitors where email = 'staff-01@example.com'), 'other', 'pretend', ${ids.staff1})`)).rejects.toThrow(/row-level security/);
     expect((await asUser(as('admin'), (tx) => tx`delete from hub.interactions where id = ${i.id} returning 1`))).toHaveLength(1);
   });
 
@@ -163,8 +175,8 @@ describe('hub_user (signed-in team members)', () => {
     expect(await asUser(as('game'), (tx) => tx`select id from hub.app_users`)).toHaveLength(0);
     expect(await asUser(as('game'), (tx) => tx`select id from hub.interactions`)).toHaveLength(0);
     expect(await asUser(as('game'), (tx) => tx`select round_id from hub.game_rounds`)).toHaveLength(0);
-    await expect(asUser(as('game'), (tx) => tx`insert into hub.interactions (visitor_email, type, notes, created_by)
-      values ('staff-01@example.com', 'other', 'x', ${ids.game})`)).rejects.toThrow(/row-level security/);
+    await expect(asUser(as('game'), (tx) => tx`insert into hub.interactions (visitor_id, type, notes, created_by)
+      values ((select id from hub.visitors where email = 'staff-01@example.com'), 'other', 'x', ${ids.game})`)).rejects.toThrow(/row-level security/);
     await expect(asUser(as('game'), (tx) => tx`insert into hub.visitors (full_name, company, job_title, email, consent_given,
       consent_version, consent_at, registration_mode, created_by)
       values ('X', 'Co', 'T', 'game-x@example.com', true, ${consentVersion}, now(), 'staff', ${ids.game})`)).rejects.toThrow(/row-level security/);

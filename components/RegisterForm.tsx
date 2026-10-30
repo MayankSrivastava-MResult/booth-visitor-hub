@@ -1,12 +1,13 @@
 'use client';
-/* Visitor registration form. The email is the visitor's identity (one record per email).
+/* Visitor registration form. Email is optional (one record per email when given).
  * Used by:
  *   - the public page (visitor's own phone, reached by QR)
  *   - kiosk mode: the same public page opened INSIDE Pharma Ninja when an email is not
  *     registered (/register?kiosk=1&email=…). On save it hands the email and first name
  *     back to the game (postMessage, same site only); browser autofill is off so the
  *     next visitor never sees the previous visitor's details
- *   - staff-assisted mode on a booth tablet.
+ *   - staff-assisted mode on a booth tablet, including completing the registration of a
+ *     pre-seeded visitor (admin import) in person: their details prefilled, consent recorded now.
  * Built to be filled in under 60 seconds: one column, large fields, phone keyboards
  * matched to each field. */
 import Link from 'next/link';
@@ -21,7 +22,10 @@ type Props = {
   cfg: RegisterConfig;
   mode: 'public' | 'staff';
   initialEmail?: string;
-  /** Staff mode: after registering, go straight to this path with ?email=<email> (e.g. back to Log interaction). */
+  initialName?: string;
+  /** Staff mode: complete this pre-seeded visitor's registration (their current details prefilled). */
+  complete?: { id: string; values: Partial<typeof EMPTY> };
+  /** Staff mode: after registering, go straight to this path with ?visitor=<id> (e.g. back to Log interaction). */
   continueTo?: string;
   /** Public form opened inside the game (see above). */
   kiosk?: boolean;
@@ -34,15 +38,15 @@ function toGame(msg: Record<string, unknown>) {
 
 const EMPTY = { email: '', fullName: '', company: '', jobTitle: '', mobile: '', linkedinUrl: '' };
 
-export default function RegisterForm({ cfg, mode, initialEmail = '', continueTo, kiosk = false }: Props) {
+export default function RegisterForm({ cfg, mode, initialEmail = '', initialName = '', complete, continueTo, kiosk = false }: Props) {
   const router = useRouter();
-  const [v, setV] = useState({ ...EMPTY, email: initialEmail });
+  const [v, setV] = useState({ ...EMPTY, email: initialEmail, fullName: initialName, ...complete?.values });
   const [consent, setConsent] = useState(false);
   const [marketing, setMarketing] = useState(false);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<{ kind: 'bad' | 'info'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ email: string; status: 'created' | 'exists' } | null>(null);
+  const [done, setDone] = useState<{ id?: string; email: string } | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const lastPing = useRef(0);
   const ac = (hint: string) => (kiosk ? 'off' : hint);   // no autofill on a shared game screen
@@ -58,26 +62,30 @@ export default function RegisterForm({ cfg, mode, initialEmail = '', continueTo,
     e.preventDefault();
     if (busy) return;
     setBusy(true); setMsg(null); setFields({});
-    const url = mode === 'public' ? '/api/public/register' : '/api/visitors';
-    const res = await callApi<{ status?: string; email?: string }>(url, 'POST', {
+    const url = mode === 'public' ? '/api/public/register' : complete ? `/api/visitors/${complete.id}/complete` : '/api/visitors';
+    const res = await callApi<{ status?: string; id?: string; ok?: boolean }>(url, 'POST', {
       ...v, consent, marketingOptIn: marketing, consentVersion: cfg.consentVersion,
     });
     setBusy(false);
+    const email = v.email.trim().toLowerCase();
+    if (res.ok && complete) { router.push(`/visitors/${complete.id}`); router.refresh(); return; }
     if (res.ok && res.data.status === 'created') {
-      const email = res.data.email ?? v.email.trim().toLowerCase();
-      if (mode === 'staff' && continueTo) { router.push(`${continueTo}?email=${encodeURIComponent(email)}`); return; }
+      if (mode === 'staff' && continueTo && res.data.id) { router.push(`${continueTo}?visitor=${res.data.id}`); return; }
       if (kiosk) toGame({ type: 'pn-registered', email, firstName: firstName(v.fullName) });
-      setDone({ email, status: 'created' });
+      setDone({ id: res.data.id, email });
       return;
     }
     if (res.status === 409 && res.data.status === 'exists') {
-      if (mode === 'public') {
-        setMsg({ kind: 'bad', text: kiosk
+      setFields({ email: 'Already registered.' });
+      setMsg({ kind: 'bad', text: mode === 'staff'
+        ? 'Someone with this email is already registered. Find them in Log interaction instead.'
+        : kiosk
           ? 'This email is already registered. Tap “Back to the game” and check the email you typed.'
           : 'This email is already registered — please see the MResult team.' });
-        return;
-      }
-      setDone({ email: v.email.trim().toLowerCase(), status: 'exists' });
+      return;
+    }
+    if (res.status === 409 && res.data.status === 'already_registered') {
+      setMsg({ kind: 'info', text: 'This visitor is already registered.' });
       return;
     }
     if (res.status === 409 && res.data.status === 'stale_consent') {
@@ -109,21 +117,20 @@ export default function RegisterForm({ cfg, mode, initialEmail = '', continueTo,
         </div>
         <h2>Thank you!</h2>
         <p>You&rsquo;re registered with the MResult team.</p>
-        <p className="notice info" style={{ marginTop: 8 }}>To play Pharma Ninja at the booth, type your email <b>{done.email}</b> on the game screen.</p>
+        <p className="notice info" style={{ marginTop: 8 }}>{done.email
+          ? <>To play Pharma Ninja at the booth, type your email <b>{done.email}</b> on the game screen.</>
+          : <>Come and play Pharma Ninja at the booth!</>}</p>
       </div>
     );
   }
 
   if (done && mode === 'staff') {
-    const enc = encodeURIComponent(done.email);
     return (
       <div className="card" role="status">
-        {done.status === 'created'
-          ? <p className="notice ok">Registered {done.email}.</p>
-          : <p className="notice info">{done.email} is already registered.</p>}
+        <p className="notice ok">Registered {v.fullName.trim()}.</p>
         <div className="stack">
-          <Link className="btn block" href={`/log?email=${enc}`}>Log an interaction</Link>
-          <Link className="btn ghost block" href={`/visitors/${enc}`}>Open visitor record</Link>
+          <Link className="btn block" href={`/log?visitor=${done.id}`}>Log an interaction</Link>
+          <Link className="btn ghost block" href={`/visitors/${done.id}`}>Open visitor record</Link>
           <button className="btn ghost block" onClick={again}>Register another visitor</button>
         </div>
       </div>
@@ -135,12 +142,6 @@ export default function RegisterForm({ cfg, mode, initialEmail = '', continueTo,
 
   return (
     <form ref={formRef} className="card" onSubmit={submit} noValidate autoComplete={kiosk ? 'off' : undefined}>
-      <label className="field">Email
-        <input name="email" type="email" inputMode="email" value={v.email} onChange={set('email')} required autoComplete={ac('email')}
-          autoCapitalize="off" autoCorrect="off" spellCheck={false} {...inv('email')} />
-        <span className="hint">Your work email. It&rsquo;s how we recognise you at the booth and in the game.</span>
-        {err('email')}
-      </label>
       <label className="field">Full name
         <input name="fullName" type="text" value={v.fullName} onChange={set('fullName')} required autoComplete={ac('name')} autoCapitalize="words" {...inv('fullName')} />
         {err('fullName')}
@@ -152,6 +153,12 @@ export default function RegisterForm({ cfg, mode, initialEmail = '', continueTo,
       <label className="field">Job title
         <input name="jobTitle" type="text" value={v.jobTitle} onChange={set('jobTitle')} required autoComplete={ac('organization-title')} {...inv('jobTitle')} />
         {err('jobTitle')}
+      </label>
+      <label className="field">Email <span className="opt">(optional)</span>
+        <input name="email" type="email" inputMode="email" value={v.email} onChange={set('email')} autoComplete={ac('email')}
+          autoCapitalize="off" autoCorrect="off" spellCheck={false} {...inv('email')} />
+        <span className="hint">With your email, the game at the booth recognises you.</span>
+        {err('email')}
       </label>
       <label className="field">Mobile <span className="opt">(optional)</span>
         <input name="mobile" type="tel" inputMode="tel" value={v.mobile} onChange={set('mobile')} autoComplete={ac('tel')} {...inv('mobile')} />
@@ -176,7 +183,7 @@ export default function RegisterForm({ cfg, mode, initialEmail = '', continueTo,
       </label>
 
       {msg && <p className={`notice ${msg.kind}`} role="alert">{msg.text}</p>}
-      <button className="btn block" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Register'}</button>
+      <button className="btn block" type="submit" disabled={busy}>{busy ? 'Saving…' : complete ? 'Complete registration' : 'Register'}</button>
     </form>
   );
 }

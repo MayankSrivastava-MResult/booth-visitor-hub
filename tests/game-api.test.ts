@@ -20,7 +20,7 @@ import * as roundsRoute from '@/app/api/game/rounds/route';
 import * as interactionsRoute from '@/app/api/interactions/route';
 import * as loginRoute from '@/app/api/auth/login/route';
 import * as visitorsRoute from '@/app/api/visitors/route';
-import * as summaryRoute from '@/app/api/visitors/[email]/summary/route';
+import * as summaryRoute from '@/app/api/visitors/[id]/summary/route';
 import { rawSql } from '@/lib/db';
 import { hashPassword } from '@/lib/password';
 import { CSV_HEADER } from '@/lib/questions';
@@ -148,8 +148,8 @@ describe('game screen accounts and the game API', () => {
   });
   it('a game account is refused by every Hub endpoint (403)', async () => {
     expect((await visitorsRoute.GET(req('/api/visitors', { cookie: game }))).status).toBe(403);
-    expect((await summaryRoute.GET(req('/api/visitors/elodie@example.com/summary', { cookie: game }), params({ email: 'elodie@example.com' }))).status).toBe(403);
-    expect((await interactionsRoute.POST(req('/api/interactions', { method: 'POST', cookie: game, body: { type: 'other', visitorEmail: 'elodie@example.com', notes: 'x' } }))).status).toBe(403);
+    expect((await summaryRoute.GET(req(`/api/visitors/${'00000000-0000-4000-8000-000000000000'}/summary`, { cookie: game }), params({ id: '00000000-0000-4000-8000-000000000000' }))).status).toBe(403);
+    expect((await interactionsRoute.POST(req('/api/interactions', { method: 'POST', cookie: game, body: { type: 'other', visitorId: '00000000-0000-4000-8000-000000000000', notes: 'x' } }))).status).toBe(403);
     expect((await exportRoute.GET(req('/api/admin/export', { cookie: game }))).status).toBe(403);
     expect((await questionsRoute.GET(req('/api/admin/questions', { cookie: game }))).status).toBe(403);
     expect((await usersRoute.GET(req('/api/admin/users', { cookie: game }))).status).toBe(403);
@@ -210,6 +210,14 @@ describe('game screen accounts and the game API', () => {
     expect((await r.json()).acked).toEqual(['legacy0001']);
     const [g] = await owner`select player_email, email_confirmed from hub.game_rounds where round_id = 'legacy0001'`;
     expect(g).toEqual({ player_email: 'elodie@example.com', email_confirmed: true });
+  });
+  it('a player who typed only a name syncs with no email', async () => {
+    const named = { round: { roundId: 'nameonly01', ts: Date.now(), date: '2026-11-02', displayName: 'Kiran', email: '', emailConfirmed: false,
+      domainId: 'regops', score: 10, questions: 1, correct: 1, longestStreak: 1, endReason: 'time' }, plays: [] };
+    const r = await roundsRoute.POST(req('/api/game/rounds', { method: 'POST', cookie: game, body: { items: [named] } }));
+    expect((await r.json()).acked).toEqual(['nameonly01']);
+    const [g] = await owner`select player_email, email_confirmed, display_name from hub.game_rounds where round_id = 'nameonly01'`;
+    expect(g).toEqual({ player_email: null, email_confirmed: false, display_name: 'Kiran' });
   });
   it('removing the game account signs out every screen at once', async () => {
     expect((await userRoute.PATCH(req(`/api/admin/users/${gameId}`, { method: 'PATCH', cookie: admin, body: { active: false } }), params({ id: gameId }))).status).toBe(200);

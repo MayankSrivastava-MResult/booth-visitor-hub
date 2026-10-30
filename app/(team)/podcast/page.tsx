@@ -31,10 +31,10 @@ export default async function PodcastPage({ searchParams }: { searchParams: Prom
             {guests.map((g) => (
               <div key={g.id} className="stack" style={{ gap: 4 }}>
                 <div className="spread">
-                  <Link href={`/visitors/${encodeURIComponent(g.email)}`} className="item-title">{g.fullName}</Link>
+                  <Link href={`/visitors/${g.visitorId}`} className="item-title">{g.fullName}</Link>
                   <span className="small muted">{formatIst(g.at)}</span>
                 </div>
-                <span>{g.jobTitle} · {g.company}</span>
+                <span>{[g.jobTitle, g.company].filter(Boolean).join(' · ')}</span>
                 {g.linkedinUrl && <a className="small" href={g.linkedinUrl} target="_blank" rel="noopener noreferrer">{g.linkedinUrl.replace(/^https:\/\/(www\.)?/, '')}</a>}
                 <span className="small"><b>{g.topic}</b> · consent form {g.consentSigned ? 'signed' : <b>NOT signed</b>} · logged by {g.loggedBy}</span>
                 {g.notes && <span className="small muted">{g.notes}</span>}

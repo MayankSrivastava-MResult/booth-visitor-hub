@@ -23,12 +23,12 @@ export default async function VisitorsPage({ searchParams }: { searchParams: Pro
         {items.length === 0 ? <p className="muted">No visitors found.</p> : (
           <div className="list">
             {items.map((v) => (
-              <Link key={v.email} href={`/visitors/${encodeURIComponent(v.email)}`} className="spread">
+              <Link key={v.id} href={`/visitors/${v.id}`} className="spread">
                 <span className="stack" style={{ gap: 0 }}>
-                  <span className="item-title">{v.fullName}</span>
-                  <span className="small muted">{v.jobTitle} · {v.company}</span>
+                  <span className="item-title">{v.fullName}{!v.registered && <> <span className="pill">pre-seeded</span></>}</span>
+                  <span className="small muted">{[v.jobTitle, v.company].filter(Boolean).join(' · ')}</span>
                 </span>
-                <span className="small muted" style={{ textAlign: 'right' }}>{v.email}<br />{formatIst(v.createdAt)}</span>
+                <span className="small muted" style={{ textAlign: 'right' }}>{v.email ?? ''}<br />{formatIst(v.createdAt)}</span>
               </Link>
             ))}
           </div>

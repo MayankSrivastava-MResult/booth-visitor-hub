@@ -19,8 +19,9 @@
    2. Check that each domain has at least 20 enabled questions.
    3. Then **Delete TEST questions**.
 4. **Settings:** add the podcast topics and the demo list.
-5. **Clear the test data** (Hub → **Data** → **Purge all event data**). Do this after any rehearsal, and before doors open on 2 November.
-6. **Print the QR code** (Hub → **QR code** → Print or Download SVG) for the booth and the podcast table.
+5. **Clear the test data** (Hub → **Data** → **Purge all event data**). Do this after any rehearsal, and before doors open on 2 November. Purging also removes an imported list.
+6. **Import the organisers' list** (Hub → **Data** → **Import a file**), after the purge. Excel or CSV with a header row; Full name and Company are required. Imported people show as *pre-seeded*.
+7. **Print the QR code** (Hub → **QR code** → Print or Download SVG) for the booth and the podcast table.
 
 ## 2. Each morning: set up a game screen (laptop or iPad)
 
@@ -36,12 +37,13 @@
    - **Results waiting to send:** should drop to 0 when the network is up.
    - **Remove a leaderboard name** or **Reset today:** for tidying the leaderboard.
 
-**Players need their email address.** They type it first (the keyboard has **@** and **.com** keys), and the game checks it by itself once it's complete. If it's registered, the game greets them by first name. If it isn't, it shows "isn't registered yet" with **Register now**: the form opens inside the game, and they're back playing within a minute.
+**Players type their email or just a display name.** Email is optional (the keyboard has **@** and **.com** keys). A registered email is recognised by itself: the game greets them by first name and fills in the name. An email that isn't registered shows **Register now** (the form opens inside the game, back playing within a minute) or **Just play**.
 
 ## 3. The team at the booth
 
 - **Sign in on your own phone once.** It lasts 7 days, and you can be signed in on several devices.
 - **Log every conversation:** **Log interaction** → search by name, company or email → pick the visitor → **Conversation** → Hot, Warm or Cold → **Save**. It takes under 30 seconds.
+- **Someone on the organisers' list** (marked *pre-seeded*) has no consent recorded yet. When you meet them, tap **Complete their registration**, check the details with them, add their email if they want, and have them agree to the notice.
   Use **Podcast** for guests, **Demo** for demos seen, **Other** for anything else.
 - **A visitor without a phone:** **Register visitor**, and fill it in together. Ask them to read and agree to the consent text.
 - **Podcast team:** the **Podcast** page lists today's guests with LinkedIn.
@@ -56,7 +58,7 @@
 | **"Not signed in" in the game admin panel** | Tap **Sign in** there and use the game account. Nothing played so far is lost. |
 | **Someone forgets their password** | Admin → **Team** → **Reset password**. That signs them out everywhere. |
 | **A phone is lost** | Admin → **Team** → change the person's password, or remove them. They're signed out at once. |
-| **Someone asks for their data to be deleted** | Admin → **Data** → **Delete one visitor** (type their email twice). Their name may still show on a game screen's leaderboard until midnight: remove it in the game admin panel. |
+| **Someone asks for their data to be deleted** | Admin → the visitor's page → **Delete this visitor** (type their full name), or Admin → **Data** → **Delete by email** (also removes game rounds of an email that never registered). Their name may still show on a game screen's leaderboard until midnight: remove it in the game admin panel. |
 
 ## 5. Every evening (admin)
 

@@ -89,12 +89,13 @@ try {
     cookies.push(/hub_session=([^;]+)/.exec(r.headers.get('set-cookie'))[1]);
   }
   const ids = await sql`select id from hub.app_users where role = 'staff' order by email`;
+  const vids = (await sql`select id from hub.visitors order by email`).map((r) => r.id);
   ok = report('log interaction (conversation)', await pool(Array.from({ length: 300 }, (_, i) => () => post('/api/interactions', {
-    type: 'conversation', visitorEmail: `load-${String(i % 400).padStart(4, '0')}@example.com`, metBy: ids[i % 10].id, problemStatement: 'Wants faster trial start-up',
+    type: 'conversation', visitorId: vids[i % vids.length], metBy: ids[i % 10].id, problemStatement: 'Wants faster trial start-up',
     domainTags: ['Clinical Trials'], interestLevel: ['hot', 'warm', 'cold'][i % 3], nextStep: 'Send a case summary' },
     { cookie: `hub_session=${cookies[i % 10]}` })), 10)) && ok;
   ok = report('visitor page lookups (summary)', await pool(Array.from({ length: 200 }, (_, i) => () =>
-    fetch(`${B}/api/visitors/load-${String(i).padStart(4, '0')}@example.com/summary`, { headers: { cookie: `hub_session=${cookies[i % 10]}` } })), 10)) && ok;
+    fetch(`${B}/api/visitors/${vids[i]}/summary`, { headers: { cookie: `hub_session=${cookies[i % 10]}` } })), 10)) && ok;
 
   console.log('\nPhase 3: 6 game screens on one game account');
   const g = await post('/api/auth/login', { email: 'game@mresult.com', password: 'load-pass-123' }, ip(2000));

@@ -7,7 +7,7 @@ import InteractionForm, { type InteractionValues, type Lists, type TeamOption } 
 
 type Props = {
   id: string; values: InteractionValues; me: TeamOption; team: TeamOption[]; lists: Lists;
-  who: { email: string; fullName: string; company: string; jobTitle: string };
+  who: { id: string; email: string | null; fullName: string; company: string; jobTitle: string | null; registered: boolean };
 };
 
 export default function InteractionActions({ id, values, me, team, lists, who }: Props) {

@@ -5,10 +5,11 @@
 //
 // A. Offline (the brief's test): disconnect mid-round, reload with no server (service worker),
 //    play 3 rounds offline, reconnect → every round synced exactly once, every play stored.
-// B. Register from the game: email required; a complete email is checked as it is typed (no
-//    suggestions); unregistered → "This email isn't registered yet" → Register now → the form over
-//    the game with the email prefilled, music keeps playing; saved → back with first name, confirmed.
-// C. Standalone file (no Hub): zero network requests; email required; plays unconfirmed.
+// B. Register from the game: email or name is enough; a complete email is checked as it is typed
+//    (no suggestions); unregistered → "This email isn't registered yet" → Just play (name made from
+//    the email) or Register now → the form over the game with the email prefilled, music keeps
+//    playing; saved → back with first name, confirmed.
+// C. Standalone file (no Hub): zero network requests; a name alone plays; an email stays unconfirmed.
 import { execSync, spawn } from 'node:child_process';
 import { randomBytes, scrypt } from 'node:crypto';
 import fs from 'node:fs';
@@ -158,8 +159,14 @@ async function flowRegister(sql, cookie) {
     await c.eval('document.getElementById("cta-play").click(); true');
     await c.waitFor('PharmaNinja.Screens.current === "name"');
     check('the cursor starts in the Email field (shown first)', (await c.eval('PharmaNinja.NameEntry.field')) === 'email');
+    check('Choose domain disabled until an email or a name is typed', await c.eval('document.getElementById("name-go").disabled'));
     await typeIn('f-name', 'Guest');
-    check('email required: Choose domain disabled with only a name', await c.eval('document.getElementById("name-go").disabled'));
+    await c.eval('document.getElementById("name-go").click(); true');
+    await c.waitFor('PharmaNinja.Screens.current === "picker"', 5000);
+    const guest = await c.eval('PharmaNinja.Screens.player');
+    check('a name alone is enough to play (no email)', guest.displayName === 'Guest' && guest.email === '' && guest.emailConfirmed === false, guest);
+    await c.eval('document.getElementById("pk-back").click(); true');
+    await c.waitFor('PharmaNinja.Screens.current === "name"');
     await reset();
 
     // a partial email shows nothing
@@ -174,11 +181,16 @@ async function flowRegister(sql, cookie) {
     await c.waitFor('document.getElementById("name-confirm").classList.contains("on")', 8000);
     const ask = await c.eval('[document.getElementById("nc-text").textContent, document.getElementById("nc-yes").textContent, document.getElementById("nc-no").textContent]');
     check('unregistered email, checked as typed: asks before opening the form',
-      ask[0] === 'This email isn’t registered yet.' && ask[1] === 'Register now' && ask[2] === 'Fix my email'
+      ask[0] === 'This email isn’t registered yet.' && ask[1] === 'Register now' && ask[2] === 'Just play'
       && !(await c.eval('document.getElementById("s-reg").classList.contains("on")')), ask);
-    await c.eval('document.getElementById("nc-no").click(); true');
-    check('"Fix my email" keeps the typed email for correcting', (await c.eval('[PharmaNinja.NameEntry.email, PharmaNinja.NameEntry.field]')).join() === 'ravi.menon@example.com,email');
-    await c.eval('PharmaNinja.NameEntry.key("DEL"); PharmaNinja.NameEntry.type("m"); true');   // retype the last character → checked again
+    await c.eval('document.getElementById("nc-no").click(); true');   // Just play
+    check('"Just play" keeps the email and moves to the name', (await c.eval('[PharmaNinja.NameEntry.email, PharmaNinja.NameEntry.field]')).join() === 'ravi.menon@example.com,name');
+    await c.eval('document.getElementById("name-go").click(); true');
+    await c.waitFor('PharmaNinja.Screens.current === "picker"', 5000);
+    const unreg = await c.eval('PharmaNinja.Screens.player');
+    check('plays unregistered, the display name made from the email', unreg.displayName === 'Ravi' && unreg.email === 'ravi.menon@example.com' && unreg.emailConfirmed === false, unreg);
+    await c.eval('document.getElementById("pk-back").click(); true');   // back: the email is checked again
+    await c.waitFor('PharmaNinja.Screens.current === "name"');
     await c.waitFor('document.getElementById("name-confirm").classList.contains("on")', 8000);
     await c.eval('document.getElementById("nc-yes").click(); true');   // Register now
     await c.waitFor('document.getElementById("s-reg").classList.contains("on")', 8000);
@@ -220,7 +232,7 @@ async function flowStandalone() {
     await c.eval('document.getElementById("cta-play").click(); true');
     await c.waitFor('PharmaNinja.Screens.current === "name"');
     await c.eval('document.getElementById("f-name").click(); "Solo".split("").forEach(ch => PharmaNinja.NameEntry.type(ch)); true');
-    check('email required here too', await c.eval('document.getElementById("name-go").disabled'));
+    check('a name alone enables Choose domain', !(await c.eval('document.getElementById("name-go").disabled')));
     await c.eval('document.getElementById("f-email").click(); "solo@example.com".split("").forEach(ch => PharmaNinja.NameEntry.type(ch)); document.getElementById("name-go").click(); true');
     await sleep(500);
     const p = await c.eval('PharmaNinja.Screens.player');

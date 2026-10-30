@@ -19,7 +19,7 @@ export default function DataAdmin({ counts, initialEmail, purgePhrase }: { count
   async function erase(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true); setMsg(null);
-    const res = await callApi<EventCounts>(`/api/admin/visitors/${encodeURIComponent(b)}`, 'DELETE', { confirm: emailConfirm });
+    const res = await callApi<EventCounts>('/api/admin/erase', 'POST', { email: b, confirm: emailConfirm });
     setBusy(false);
     if (res.ok) {
       setMsg({ kind: 'ok', text: `Deleted ${b}: ${summary(res.data)}.` });
@@ -41,16 +41,17 @@ export default function DataAdmin({ counts, initialEmail, purgePhrase }: { count
     <>
       {msg && <p className={`notice ${msg.kind}`} role="status">{msg.text}</p>}
       <form className="card" onSubmit={erase}>
-        <h2>Delete one visitor</h2>
-        <p className="small muted">For a request to delete someone&rsquo;s data. Removes the visitor and everything recorded against
-          their email: conversations, podcast, demos, notes and game rounds. Their name may still show on a game screen&rsquo;s
-          leaderboard until midnight; remove it there in the game&rsquo;s admin panel.</p>
+        <h2>Delete by email</h2>
+        <p className="small muted">For a request to delete someone&rsquo;s data. Removes the visitor with this email and everything
+          recorded against them: conversations, podcast, demos, notes and every game round played under the email (also if it was
+          never registered). Someone without an email: open their visitor page and delete them there. Their name may still show on
+          a game screen&rsquo;s leaderboard until midnight; remove it there in the game&rsquo;s admin panel.</p>
         <label className="field">Visitor&rsquo;s email
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoCapitalize="off" autoComplete="off" spellCheck={false} /></label>
         <label className="field">Type the email again to confirm
           <input type="email" value={emailConfirm} onChange={(e) => setEmailConfirm(e.target.value)} autoCapitalize="off" autoComplete="off" spellCheck={false} /></label>
         <button className="btn danger" type="submit" disabled={busy || !b || emailConfirm.trim().toLowerCase() !== b}>
-          {busy ? 'Deleting…' : `Delete ${b || 'visitor'} and all their records`}</button>
+          {busy ? 'Deleting…' : `Delete everything for ${b || 'this email'}`}</button>
       </form>
       <form className="card" onSubmit={purge}>
         <h2>Purge all event data</h2>

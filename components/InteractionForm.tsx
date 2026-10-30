@@ -4,7 +4,8 @@
  *      (nobody found → "Register them now", which comes back here afterwards)
  *   2. pick the type: Conversation / Podcast guest / Demo seen / Other
  *   3. fill the few fields for that type and save.
- * "Met by" defaults to the signed-in person. Visitors are identified by email. */
+ * "Met by" defaults to the signed-in person. People pre-seeded from the organisers' list
+ * show "not registered yet", with a link to complete their registration. */
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { callApi } from './api';
@@ -12,7 +13,7 @@ import { callApi } from './api';
 export type TeamOption = { id: string; displayName: string };
 export type Lists = { podcastTopics: string[]; demos: string[]; domainTags: string[] };
 type Type = 'conversation' | 'podcast' | 'demo' | 'other';
-type Who = { email: string; fullName: string; company: string; jobTitle: string };
+type Who = { id: string; email: string | null; fullName: string; company: string; jobTitle: string | null; registered: boolean };
 
 export type InteractionValues = {
   type: Type; metBy: string; problemStatement: string; domainTags: string[]; interestLevel: '' | 'hot' | 'warm' | 'cold';
@@ -25,7 +26,7 @@ type Props = {
   team: TeamOption[];
   lists: Lists;
   /** Preselect this visitor (e.g. after registering a walk-in, or from their visitor page). */
-  initialEmail?: string;
+  initialVisitorId?: string;
   /** Editing: the interaction id, its values and its visitor (the visitor is fixed). */
   existing?: { id: string; values: InteractionValues; who: Who };
   onSaved?: () => void;
@@ -35,13 +36,14 @@ const TYPES: { k: Type; label: string }[] = [
   { k: 'conversation', label: 'Conversation' }, { k: 'podcast', label: 'Podcast' }, { k: 'demo', label: 'Demo' }, { k: 'other', label: 'Other' },
 ];
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/;
+const role = (w: Who) => [w.jobTitle, w.company].filter(Boolean).join(' · ');
 
 const blank = (me: string): InteractionValues => ({
   type: 'conversation', metBy: me, problemStatement: '', domainTags: [], interestLevel: '', nextStep: '', followUpOwner: '',
   followUpDate: '', podcastTopic: '', podcastConsentSigned: null, demoName: '', notes: '',
 });
 
-export default function InteractionForm({ me, team, lists, initialEmail = '', existing, onSaved }: Props) {
+export default function InteractionForm({ me, team, lists, initialVisitorId = '', existing, onSaved }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Who[]>([]);
   const [search, setSearch] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
@@ -52,11 +54,11 @@ export default function InteractionForm({ me, team, lists, initialEmail = '', ex
   const [busy, setBusy] = useState(false);
   const seq = useRef(0);
 
-  // A visitor handed in by email (after registering, or from their visitor page) is selected straight away.
+  // A visitor handed in by id (after registering, or from their visitor page) is selected straight away.
   useEffect(() => {
-    if (existing || !initialEmail) return;
-    callApi<{ found: boolean } & Who>(`/api/visitors/${encodeURIComponent(initialEmail)}/summary`, 'GET')
-      .then((res) => { if (res.ok && res.data.found) setWho(res.data); else setQuery(initialEmail); });
+    if (existing || !initialVisitorId) return;
+    callApi<{ found: boolean } & Who>(`/api/visitors/${initialVisitorId}/summary`, 'GET')
+      .then((res) => { if (res.ok && res.data.found) setWho(res.data); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -83,13 +85,13 @@ export default function InteractionForm({ me, team, lists, initialEmail = '', ex
   };
 
   function body() {
-    const e = who!.email;
+    const e = who!.id;
     switch (v.type) {
-      case 'conversation': return { type: v.type, visitorEmail: e, metBy: v.metBy, problemStatement: v.problemStatement, domainTags: v.domainTags,
+      case 'conversation': return { type: v.type, visitorId: e, metBy: v.metBy, problemStatement: v.problemStatement, domainTags: v.domainTags,
         interestLevel: v.interestLevel || undefined, nextStep: v.nextStep, followUpOwner: v.followUpOwner || null, followUpDate: v.followUpDate || null };
-      case 'podcast': return { type: v.type, visitorEmail: e, podcastTopic: v.podcastTopic, notes: v.notes, podcastConsentSigned: v.podcastConsentSigned ?? undefined };
-      case 'demo': return { type: v.type, visitorEmail: e, demoName: v.demoName, notes: v.notes };
-      case 'other': return { type: v.type, visitorEmail: e, notes: v.notes };
+      case 'podcast': return { type: v.type, visitorId: e, podcastTopic: v.podcastTopic, notes: v.notes, podcastConsentSigned: v.podcastConsentSigned ?? undefined };
+      case 'demo': return { type: v.type, visitorId: e, demoName: v.demoName, notes: v.notes };
+      case 'other': return { type: v.type, visitorId: e, notes: v.notes };
     }
   }
 
@@ -117,7 +119,7 @@ export default function InteractionForm({ me, team, lists, initialEmail = '', ex
 
   const err = (k: string) => (fields[k] ? <span className="err">{fields[k]}</span> : null);
   const q = query.trim();
-  const registerHref = `/staff-register?continue=/log${EMAIL_RE.test(q) ? `&email=${encodeURIComponent(q.toLowerCase())}` : ''}`;
+  const registerHref = `/staff-register?continue=/log${q ? `&${EMAIL_RE.test(q) ? 'email' : 'name'}=${encodeURIComponent(EMAIL_RE.test(q) ? q.toLowerCase() : q)}` : ''}`;
 
   return (
     <form className="stack" onSubmit={save} noValidate>
@@ -134,7 +136,9 @@ export default function InteractionForm({ me, team, lists, initialEmail = '', ex
       <div className="card">
         {who ? (
           <div className="who-box">
-            <span className="nm">{who.fullName}</span><span>{who.jobTitle} · {who.company}</span><span className="small muted">{who.email}</span>
+            <span className="nm">{who.fullName}</span><span>{role(who)}</span>{who.email && <span className="small muted">{who.email}</span>}
+            {!who.registered && <span className="small">On the organisers&rsquo; list, not registered yet.{' '}
+              <Link href={`/staff-register?complete=${who.id}`}>Complete their registration</Link></span>}
             {!existing && <button type="button" className="linkbtn small" style={{ alignSelf: 'flex-start', marginTop: 4 }} onClick={newVisitor}>Change visitor</button>}
           </div>
         ) : (
@@ -148,17 +152,17 @@ export default function InteractionForm({ me, team, lists, initialEmail = '', ex
             {results.length > 0 && (
               <div className="list pick-list" role="listbox" aria-label="Matching visitors">
                 {results.map((r) => (
-                  <button type="button" key={r.email} role="option" aria-selected={false} className="pick" onClick={() => pick(r)}>
-                    <span className="item-title">{r.fullName}</span>
-                    <span className="small muted">{r.jobTitle} · {r.company}</span>
-                    <span className="small muted">{r.email}</span>
+                  <button type="button" key={r.id} role="option" aria-selected={false} className="pick" onClick={() => pick(r)}>
+                    <span className="item-title">{r.fullName}{!r.registered && <> <span className="pill">pre-seeded</span></>}</span>
+                    <span className="small muted">{role(r)}</span>
+                    {r.email && <span className="small muted">{r.email}</span>}
                   </button>
                 ))}
               </div>
             )}
             {search === 'done' && results.length === 0 && (
               <div className="notice info stack">
-                <span>No registered visitor matches &ldquo;{q}&rdquo;.</span>
+                <span>No visitor matches &ldquo;{q}&rdquo;.</span>
                 <Link className="btn small dark" href={registerHref}>Register them now</Link>
               </div>
             )}

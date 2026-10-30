@@ -41,9 +41,9 @@ rules, or if the game's code contains any absolute web address (the game only ta
 Open the Hub on any device and sign in. A **Game screen** account goes straight to `/play`; admin and staff can use
 "Play Pharma Ninja" on the Hub home page.
 
-**Email is required to play.** The keyboard has **@** and **.com** keys. Once the typed email looks complete and typing pauses, the game checks it with the Hub by itself ("Choose domain" also checks it, if tapped first). There are no suggestions while typing, so other visitors' emails and names can't be browsed:
+**Email or display name is needed to play**; email is optional (with only an email, the display name is made from it: mayank.s@… → "Mayank"). The keyboard has **@** and **.com** keys. Once the typed email looks complete and typing pauses, the game checks it with the Hub by itself ("Choose domain" also checks it, if tapped first). There are no suggestions while typing, so other visitors' emails and names can't be browsed:
 - **Registered:** "Welcome, <first name> — is this you?". Yes fills in the display name.
-- **Not registered:** "This email isn't registered yet" with **Register now** and **Fix my email**. Register now opens
+- **Not registered:** "This email isn't registered yet" with **Register now** and **Just play** (the email is kept unconfirmed and can still be corrected). Register now opens
   the Hub's registration form (`/register?kiosk=1`) over the game, with the email filled in. The game page stays open, so the music keeps playing. Saving brings the player straight back with their
   first name as the display name and the email confirmed. Autofill is off on that form, so the next visitor never
   sees the previous visitor's details.

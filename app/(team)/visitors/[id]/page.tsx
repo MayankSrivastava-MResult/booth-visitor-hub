@@ -8,7 +8,8 @@ import { domainTagOptions, getSettings, listTeam } from '@/lib/data/team';
 import { visitorDetail, type TimelineItem } from '@/lib/data/visitors';
 import { requireUser } from '@/lib/session';
 import { formatIst } from '@/lib/time';
-import { emailFromParam } from '@/lib/validation';
+import { isUuid } from '@/lib/validation';
+import DeleteVisitor from './DeleteVisitor';
 import EditVisitor from './EditVisitor';
 import InteractionActions from './InteractionActions';
 
@@ -16,39 +17,49 @@ export const metadata: Metadata = { title: 'Visitor' };
 
 const TYPE_LABEL = { conversation: 'Conversation', podcast: 'Podcast guest', demo: 'Demo seen', other: 'Note' } as const;
 
-export default async function VisitorPage({ params }: { params: Promise<{ email: string }> }) {
+export default async function VisitorPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
-  const email = emailFromParam((await params).email);
-  const detail = await visitorDetail(user, email);
+  const { id } = await params;
+  const detail = isUuid(id) ? await visitorDetail(user, id) : null;
   if (!detail) notFound();
   const { visitor: v, timeline } = detail;
   const [team, settings, domainTags] = await Promise.all([listTeam(user, { peopleOnly: true }), getSettings(user), domainTagOptions(user)]);
   const lists = { podcastTopics: settings.podcastTopics, demos: settings.demos, domainTags };
   const teamOpts = team.map((t) => ({ id: t.id, displayName: t.displayName }));
-  const who = { email: v.email, fullName: v.fullName, company: v.company, jobTitle: v.jobTitle };
+  const who = { id: v.id, email: v.email, fullName: v.fullName, company: v.company, jobTitle: v.jobTitle, registered: v.registered };
 
   return (
     <main className="page">
       <div className="spread">
         <div className="stack" style={{ gap: 2 }}>
           <h1>{v.fullName}</h1>
-          <span className="muted">{v.jobTitle} · {v.company}</span>
+          <span className="muted">{[v.jobTitle, v.company].filter(Boolean).join(' · ')}</span>
         </div>
-        <Link className="btn" href={`/log?email=${encodeURIComponent(v.email)}`}>Log interaction</Link>
+        <Link className="btn" href={`/log?visitor=${v.id}`}>Log interaction</Link>
       </div>
 
+      {!v.registered && (
+        <div className="notice info stack">
+          <span>{v.fullName} is on the organisers&rsquo; list but hasn&rsquo;t registered yet: no consent is recorded.</span>
+          <Link className="btn small dark" href={`/staff-register?complete=${v.id}`}>Complete their registration</Link>
+        </div>
+      )}
       <div className="card">
         <dl className="kv">
-          <dt>Email</dt><dd><a href={`mailto:${v.email}`}>{v.email}</a></dd>
+          <dt>Email</dt><dd>{v.email ? <a href={`mailto:${v.email}`}>{v.email}</a> : '—'}</dd>
           <dt>Mobile</dt><dd>{v.mobile ? <a href={`tel:${v.mobile}`}>{v.mobile}</a> : '—'}</dd>
           <dt>LinkedIn</dt><dd>{v.linkedinUrl ? <a href={v.linkedinUrl} target="_blank" rel="noopener noreferrer">{v.linkedinUrl.replace(/^https:\/\/(www\.)?/, '')}</a> : '—'}</dd>
-          <dt>Registered</dt><dd>{formatIst(v.createdAt)} · {v.registrationMode === 'self' ? 'self (QR)' : `by ${v.createdByName ?? 'team'}`}</dd>
-          <dt>Consent</dt><dd>Yes (notice v{v.consentVersion}, {formatIst(v.consentAt)}) · Marketing: {v.marketingOptIn ? 'yes' : 'no'}</dd>
+          <dt>Registered</dt><dd>{v.registrationMode === 'import'
+            ? `Pre-seeded ${formatIst(v.createdAt)} by ${v.createdByName ?? 'admin'}`
+            : `${formatIst(v.createdAt)} · ${v.registrationMode === 'self' ? 'self (QR)' : `by ${v.createdByName ?? 'team'}`}`}</dd>
+          <dt>Consent</dt><dd>{v.registered && v.consentAt
+            ? `Yes (notice v${v.consentVersion}, ${formatIst(v.consentAt)}) · Marketing: ${v.marketingOptIn ? 'yes' : 'no'}`
+            : 'Not yet'}</dd>
           {v.updatedByName && <><dt>Last edited</dt><dd>{formatIst(v.updatedAt)} by {v.updatedByName}</dd></>}
         </dl>
-        {user.role === 'admin' && <p className="small"><a href={`/admin/data?email=${encodeURIComponent(v.email)}`}>Delete this visitor and all their records…</a></p>}
-        {user.role === 'admin' && <EditVisitor visitor={{ fullName: v.fullName, company: v.company, jobTitle: v.jobTitle,
-          email: v.email, mobile: v.mobile ?? '', linkedinUrl: v.linkedinUrl ?? '', marketingOptIn: v.marketingOptIn }} />}
+        {user.role === 'admin' && <DeleteVisitor id={v.id} fullName={v.fullName} />}
+        {user.role === 'admin' && <EditVisitor id={v.id} visitor={{ fullName: v.fullName, company: v.company, jobTitle: v.jobTitle ?? '',
+          email: v.email ?? '', mobile: v.mobile ?? '', linkedinUrl: v.linkedinUrl ?? '', marketingOptIn: v.marketingOptIn }} />}
       </div>
 
       <h2>Timeline</h2>

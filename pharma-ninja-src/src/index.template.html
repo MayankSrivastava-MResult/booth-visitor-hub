@@ -320,8 +320,8 @@ button:focus-visible { outline: 0.3rem solid var(--white); outline-offset: 0.3re
         <!-- The email prompt takes the heading's place (same grid cell), so nothing below moves -->
         <div class="name-top">
           <div class="name-head" id="name-head">
-            <h1 class="h1 display">Pick a display name</h1>
-            <div class="sub">It goes on today’s leaderboard. No real name needed.</div>
+            <h1 class="h1 display">Who’s playing?</h1>
+            <div class="sub">Type your email so we recognise you, or just a display name for today’s leaderboard.</div>
           </div>
           <div class="name-confirm" id="name-confirm" role="status">
             <div class="nc-text" id="nc-text"></div>
@@ -329,8 +329,8 @@ button:focus-visible { outline: 0.3rem solid var(--white); outline-offset: 0.3re
           </div>
         </div>
         <div class="fields">
-          <!-- Email first (required; it is the visitor's identity): confirming it fills in the display name. -->
-          <button class="field email active" id="f-email"><label>Email</label><div class="val" id="v-email"></div></button>
+          <!-- Email first (optional): a registered email fills in the display name. Email or name is needed to play. -->
+          <button class="field email active" id="f-email"><label>Email (optional)</label><div class="val" id="v-email"></div></button>
           <button class="field small" id="f-name"><label>Display name</label><div class="val" id="v-name"></div></button>
         </div>
         <div class="name-msg" id="name-msg"></div>

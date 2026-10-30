@@ -3,7 +3,8 @@
  *   Game plays, Unmatched emails.
  * Optional date filter = IST calendar days, inclusive. With a filter, the
  * Visitors sheet lists everyone registered OR with any touchpoint in the
- * range, and its counts cover that range. All times are shown in IST. */
+ * range, and its counts cover that range. Pre-seeded people (admin import) are
+ * listed once their registration is completed or they have a touchpoint. All times are shown in IST. */
 import ExcelJS from 'exceljs';
 import { asUser, type Tx } from '../db';
 import type { SessionUser } from '../session';
@@ -26,24 +27,25 @@ async function queries(tx: Tx, start: Date | null, end: Date | null) {
     select v.email, v.full_name, v.company, v.job_title, v.mobile, v.linkedin_url,
            case when v.consent_given then 'yes' else 'no' end as consent, v.consent_version, ${IST('v.consent_at')} as consent_at,
            case when v.marketing_opt_in then 'yes' else 'no' end as marketing_opt_in,
-           ${IST('v.created_at')} as registered_at, v.registration_mode,
+           ${IST('v.created_at')} as registered_at,
+           case v.registration_mode when 'import' then case when v.consent_given then 'pre-seeded, completed' else 'pre-seeded' end else v.registration_mode end as registration_mode,
            coalesce(cb.display_name, 'self (QR)') as created_by,
-           (select count(*) from iv where iv.visitor_email = v.email and iv.type = 'conversation')::int as conversations,
-           (select count(*) from iv where iv.visitor_email = v.email and iv.type = 'podcast')::int as podcast,
-           (select count(*) from iv where iv.visitor_email = v.email and iv.type = 'demo')::int as demos,
-           (select count(*) from iv where iv.visitor_email = v.email and iv.type = 'other')::int as other_notes,
+           (select count(*) from iv where iv.visitor_id = v.id and iv.type = 'conversation')::int as conversations,
+           (select count(*) from iv where iv.visitor_id = v.id and iv.type = 'podcast')::int as podcast,
+           (select count(*) from iv where iv.visitor_id = v.id and iv.type = 'demo')::int as demos,
+           (select count(*) from iv where iv.visitor_id = v.id and iv.type = 'other')::int as other_notes,
            (select count(*) from gr where gr.player_email = v.email)::int as game_rounds,
            (select max(score) from gr where gr.player_email = v.email) as best_score,
-           (select interest_level from iv where iv.visitor_email = v.email and iv.type = 'conversation' order by occurred_at desc limit 1) as latest_interest,
-           (select next_step from iv where iv.visitor_email = v.email and iv.next_step is not null order by occurred_at desc limit 1) as latest_next_step
+           (select interest_level from iv where iv.visitor_id = v.id and iv.type = 'conversation' order by occurred_at desc limit 1) as latest_interest,
+           (select next_step from iv where iv.visitor_id = v.id and iv.next_step is not null order by occurred_at desc limit 1) as latest_next_step
     from hub.visitors v left join hub.app_users cb on cb.id = v.created_by
-    where ${R('v.created_at')} or exists (select 1 from iv where iv.visitor_email = v.email) or exists (select 1 from gr where gr.player_email = v.email)
+    where (v.consent_given and ${R('v.consent_at')}) or exists (select 1 from iv where iv.visitor_id = v.id) or exists (select 1 from gr where gr.player_email = v.email)
     order by v.created_at`);
 
   const base = (type: string, extra: string) => q(`
     select ${IST('i.occurred_at')} as at, v.email, v.full_name, v.company, v.job_title, ${extra},
            cb.display_name as logged_by
-    from hub.interactions i join hub.visitors v on v.email = i.visitor_email join hub.app_users cb on cb.id = i.created_by
+    from hub.interactions i join hub.visitors v on v.id = i.visitor_id join hub.app_users cb on cb.id = i.created_by
     left join hub.app_users mb on mb.id = i.met_by left join hub.app_users fo on fo.id = i.follow_up_owner
     where i.type = '${type}' and ${R('i.occurred_at')}
     order by i.occurred_at`);
@@ -59,7 +61,7 @@ async function queries(tx: Tx, start: Date | null, end: Date | null) {
   const rounds = await q(`
     select ${IST('g.played_at')} as played_at, g.round_id, g.display_name, g.player_email as email,
            case when g.email_confirmed then 'yes' else 'no' end as email_confirmed,
-           case when g.player_email is null then '' when v.email is null then 'no' else 'yes' end as registered,
+           case when g.player_email is null then 'no email' when v.email is null then 'no' else 'yes' end as registered,
            v.full_name, coalesce(d.name, g.domain_id) as domain, g.score, g.questions, g.correct, g.longest_streak, g.end_reason,
            sb.display_name as sent_by, ${IST('g.received_at')} as synced_at
     from hub.game_rounds g left join hub.visitors v on v.email = g.player_email
